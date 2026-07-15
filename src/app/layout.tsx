@@ -4,8 +4,8 @@ import { PlayerProvider } from "@/components/PlayerContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Dad vs Rich · NFL Pick'em",
-  description: "Weekly NFL pick'em: Dad vs Rich, straight-up winners.",
+  title: "Bruce vs Rich · NFL Pick'em",
+  description: "Weekly NFL pick'em: Bruce vs Rich, straight-up winners.",
 };
 
 export const viewport: Viewport = {

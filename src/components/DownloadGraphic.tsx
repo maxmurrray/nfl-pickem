@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 const SIZE_OPTIONS = [
-  { key: "twitter", label: "Twitter · 16:9", detail: "1600×900 · best for posts" },
+  { key: "twitter", label: "Twitter · 4:5", detail: "1600×2000 · best for feed" },
   { key: "square", label: "Square", detail: "1080×1080" },
   { key: "story", label: "Story", detail: "1080×1920 · vertical" },
 ] as const;
@@ -33,7 +33,7 @@ export default function DownloadGraphic({ season, week }: DownloadGraphicProps) 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `dad-vs-rich-week-${week}-${size}.png`;
+      a.download = `bruce-vs-rich-week-${week}-${size}.png`;
       document.body.appendChild(a);
       a.click();
       a.remove();

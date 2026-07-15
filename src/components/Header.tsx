@@ -14,7 +14,7 @@ export default function Header() {
       <div className="header-inner">
         <div className="header-top">
           <Link href="/" className="brand">
-            🏈 Dad <span className="brand-vs">vs</span> Rich
+            🏈 Bruce <span className="brand-vs">vs</span> Rich
           </Link>
           <div className="player-toggle" role="group" aria-label="Who are you?">
             {PLAYER_IDS.map((id) => (

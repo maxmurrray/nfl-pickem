@@ -1,14 +1,15 @@
-# Dad vs Rich · NFL Pick'em
+# Bruce vs Rich · NFL Pick'em
 
-A two-player NFL pick'em app. Every week, Dad and Rich each pick a
+A two-player NFL pick'em app. Every week, Bruce and Rich each pick a
 straight-up winner for every game. Picks lock at kickoff, get graded
 automatically against ESPN's real scores, and a leaderboard tracks the
 season-long battle.
 
 ## How it works
 
-- **No accounts.** A toggle at the top picks who you are (Dad or Rich);
-  the choice is remembered on the device via `localStorage`.
+- **No accounts.** A toggle at the top picks who you are (Bruce or
+  Rich); the choice is remembered on the device via `localStorage`.
+  (Bruce is stored as the player id `dad` in the database.)
 - **Schedule + scores** come from ESPN's public scoreboard API, fetched
   server-side and cached for 60 seconds. The "current week" comes from
   ESPN's own week metadata — nothing is hardcoded.
@@ -32,9 +33,13 @@ season-long battle.
 Once **both** players have picked every game in a week, a
 "Download picks graphic" button appears on that week's page. It renders
 a shareable PNG server-side (`src/app/api/graphic/route.tsx`, via
-`next/og`) in three sizes: Twitter 16:9 (1600×900), square (1080×1080),
+`next/og`) in a broadcast-style board: team-color banner rectangles
+with oversized logos, an AT badge on each matchup, and all-time records
+under each name. Sizes: Twitter 4:5 (1600×2000), square (1080×1080),
 and vertical story (1080×1920). The endpoint refuses to render until
-both players are done, since the graphic reveals all picks.
+both players are done, since the graphic reveals all picks. A few teams
+use ESPN's white "-dark" logo variant so the logo doesn't vanish
+against its own team color (see `WHITE_LOGO_TEAMS`).
 
 ## Pages
 

@@ -1,17 +1,24 @@
 import { ImageResponse } from "next/og";
 import { NextRequest, NextResponse } from "next/server";
-import { getWeekGames } from "@/lib/espn";
-import { getPicksForWeek } from "@/lib/picks-store";
-import type { Game, PlayerId, WeekPicks } from "@/lib/types";
+import { getSeasonContext, getWeekGames } from "@/lib/espn";
+import {
+  addRecords,
+  emptyRecords,
+  formatRecord,
+  gradeWeek,
+} from "@/lib/grading";
+import { getPicksForSeason, getPicksForWeek } from "@/lib/picks-store";
+import type { Game, GameSide, PlayerId, WeekPicks } from "@/lib/types";
 import { PLAYER_IDS, PLAYER_NAMES } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// v1 style: dark field-green board, two pick columns. Iterate later.
+// Banner-style board: one game column on the left, a pick banner column
+// per player. Tall formats suit this layout; X/Twitter shows 4:5 in full.
 const SIZES = {
-  twitter: { width: 1600, height: 900, columns: 2 },
-  square: { width: 1080, height: 1080, columns: 2 },
-  story: { width: 1080, height: 1920, columns: 1 },
+  twitter: { width: 1600, height: 2000 },
+  square: { width: 1080, height: 1080 },
+  story: { width: 1080, height: 1920 },
 } as const;
 
 type SizeKey = keyof typeof SIZES;
@@ -20,26 +27,80 @@ function isSizeKey(value: string | null): value is SizeKey {
   return value !== null && value in SIZES;
 }
 
-const PLAYER_COLORS: Record<PlayerId, string> = {
-  dad: "#4ade80",
-  rich: "#7dd3fc",
-};
+// Teams whose primary logo disappears against their own team color;
+// ESPN's "-dark" variants are the white-on-transparent versions.
+const WHITE_LOGO_TEAMS = new Set(["NYG", "NYJ", "LAR"]);
+
+function logoUrl(side: GameSide): string | null {
+  if (!side.logo) return null;
+  return WHITE_LOGO_TEAMS.has(side.abbreviation)
+    ? side.logo.replace("/nfl/500/", "/nfl/500-dark/")
+    : side.logo;
+}
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+async function fetchLogo(url: string): Promise<string> {
+  // First try the Next data cache; a failed or truncated response can
+  // itself get cached, so validate the bytes and retry straight to the
+  // network if they don't look like a PNG.
+  for (const init of [
+    { next: { revalidate: 86400 } },
+    { cache: "no-store" },
+  ] as RequestInit[]) {
+    try {
+      const res = await fetch(url, init);
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 100 || !buf.subarray(0, 4).equals(PNG_MAGIC)) continue;
+      return `data:image/png;base64,${buf.toString("base64")}`;
+    } catch {
+      // fall through to the uncached retry
+    }
+  }
+  return "";
+}
 
 async function loadLogos(games: Game[]): Promise<Map<string, string>> {
   const urls = new Set<string>();
   for (const game of games) {
-    if (game.away.logo) urls.add(game.away.logo);
-    if (game.home.logo) urls.add(game.home.logo);
+    const away = logoUrl(game.away);
+    const home = logoUrl(game.home);
+    if (away) urls.add(away);
+    if (home) urls.add(home);
   }
   const entries = await Promise.all(
-    [...urls].map(async (url): Promise<[string, string]> => {
-      const res = await fetch(url, { next: { revalidate: 86400 } });
-      if (!res.ok) return [url, ""];
-      const buf = Buffer.from(await res.arrayBuffer());
-      return [url, `data:image/png;base64,${buf.toString("base64")}`];
-    })
+    [...urls].map(async (url): Promise<[string, string]> => [
+      url,
+      await fetchLogo(url),
+    ])
   );
   return new Map(entries.filter(([, uri]) => uri !== ""));
+}
+
+/** Season-to-date records for both players (completed games only). */
+async function seasonRecords(season: number) {
+  const context = await getSeasonContext();
+  const weekCount = season === context.season ? context.currentWeek : 18;
+  const weekNumbers = Array.from({ length: weekCount }, (_, i) => i + 1);
+  const [weeks, rows] = await Promise.all([
+    Promise.all(weekNumbers.map((w) => getWeekGames(season, w))),
+    getPicksForSeason(season),
+  ]);
+  const picksByWeek = new Map<number, WeekPicks>();
+  for (const row of rows) {
+    const weekPicks = picksByWeek.get(row.week) ?? {};
+    (weekPicks[row.gameId] ??= {})[row.player] = row.teamId;
+    picksByWeek.set(row.week, weekPicks);
+  }
+  const totals = emptyRecords();
+  for (const weekData of weeks) {
+    addRecords(
+      totals,
+      gradeWeek(weekData.games, picksByWeek.get(weekData.week) ?? {})
+    );
+  }
+  return totals;
 }
 
 /**
@@ -86,24 +147,66 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const logos = await loadLogos(games);
-  const logo = (side: Game["home"]) =>
-    side.logo ? (logos.get(side.logo) ?? null) : null;
-  const pickedSide = (game: Game, player: PlayerId) => {
+  const [logos, records] = await Promise.all([
+    loadLogos(games),
+    seasonRecords(season),
+  ]);
+
+  const pickedSide = (game: Game, player: PlayerId): GameSide => {
     const teamId = picks[game.id]?.[player];
     return teamId === game.home.teamId ? game.home : game.away;
   };
 
-  // Split games into columns, filling top-to-bottom, left column first.
-  const perColumn = Math.ceil(games.length / size.columns);
-  const columns: Game[][] = [];
-  for (let i = 0; i < size.columns; i++) {
-    columns.push(games.slice(i * perColumn, (i + 1) * perColumn));
-  }
+  // ----- layout metrics, all derived from canvas + game count -----
+  const { width: W, height: H } = size;
+  const n = games.length;
+  const pad = Math.round(W * 0.03);
+  const gap = Math.max(4, Math.round(H * 0.005));
+  const headerH = Math.round(H * 0.085);
+  const rowH = Math.floor((H - pad * 2 - headerH - gap * n) / n);
+  const seam = 3;
+  const rectW = Math.round(rowH * 1.5);
+  const matchW = rectW * 2 + seam;
+  const colGap = Math.max(10, Math.round(W * 0.015));
+  const pickW = Math.floor((W - pad * 2 - matchW - colGap * 2) / 2);
+  const logoSize = Math.round(rowH * 1.45);
+  const badgeW = Math.round(rowH * 0.56);
+  const badgeH = Math.round(rowH * 0.4);
+  const nameFont = Math.round(Math.min(headerH * 0.42, pickW * 0.14));
+  const recordFont = Math.round(nameFont * 0.72);
+  const weekFont = Math.round(Math.min(headerH * 0.42, matchW * 0.19));
 
-  const scale = size.columns === 1 ? 1 : size.width / 1600;
-  const logoPx = Math.round(44 * Math.max(scale, 0.7));
-  const abbrPx = Math.round(26 * Math.max(scale, 0.75));
+  // A team banner: primary-color rectangle with the logo blown up past
+  // the rect's height and cropped, like broadcast pick boards.
+  const teamRect = (side: GameSide, width: number) => {
+    const url = logoUrl(side);
+    const uri = url ? logos.get(url) : undefined;
+    return (
+      <div
+        style={{
+          width,
+          height: rowH,
+          background: side.color ? `#${side.color}` : "#374151",
+          overflow: "hidden",
+          position: "relative",
+          display: "flex",
+        }}
+      >
+        {uri && (
+          <img
+            src={uri}
+            width={logoSize}
+            height={logoSize}
+            style={{
+              position: "absolute",
+              left: Math.round((width - logoSize) / 2),
+              top: Math.round((rowH - logoSize) / 2),
+            }}
+          />
+        )}
+      </div>
+    );
+  };
 
   return new ImageResponse(
     (
@@ -113,158 +216,108 @@ export async function GET(request: NextRequest) {
           height: "100%",
           display: "flex",
           flexDirection: "column",
-          backgroundImage: "linear-gradient(160deg, #07130b, #0d2415)",
-          color: "#f2f7f2",
+          background: "#07090d",
           fontFamily: "sans-serif",
-          padding: `${Math.round(36 * scale) + 8}px ${Math.round(48 * scale) + 8}px`,
+          padding: pad,
         }}
       >
         <div
           style={{
             display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            marginBottom: 18,
+            height: headerH,
+            alignItems: "center",
           }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
-            <span style={{ fontSize: Math.round(52 * scale) + 10, fontWeight: 700 }}>
-              DAD{" "}
-              <span style={{ color: "#4ade80", margin: "0 14px" }}>vs</span>
-              {" "}RICH
-            </span>
-          </div>
-          <span
+          <div
             style={{
-              fontSize: Math.round(30 * scale) + 6,
-              color: "#9fb3a4",
+              width: matchW,
+              display: "flex",
+              justifyContent: "center",
+              color: "#ffffff",
+              fontSize: weekFont,
+              fontWeight: 700,
+              letterSpacing: 2,
             }}
           >
-            Week {week} · {season} NFL Picks
-          </span>
-        </div>
-
-        <div style={{ display: "flex", flex: 1, gap: Math.round(40 * scale) }}>
-          {columns.map((columnGames, columnIndex) => (
+            WEEK {week}
+          </div>
+          <div style={{ width: colGap, display: "flex" }} />
+          {PLAYER_IDS.map((player, i) => (
             <div
-              key={columnIndex}
+              key={player}
               style={{
+                width: pickW,
+                marginLeft: i === 0 ? 0 : colGap,
                 display: "flex",
                 flexDirection: "column",
-                flex: 1,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <div
+              <span
                 style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: 0,
-                  paddingBottom: 6,
-                  borderBottom: "2px solid rgba(255,255,255,0.25)",
+                  color: "#ffffff",
+                  fontSize: nameFont,
+                  fontWeight: 700,
+                  letterSpacing: 4,
                 }}
               >
-                {PLAYER_IDS.map((player) => (
-                  <span
-                    key={player}
-                    style={{
-                      width: 120 * Math.max(scale, 0.8),
-                      textAlign: "center",
-                      justifyContent: "center",
-                      display: "flex",
-                      fontSize: Math.round(22 * scale) + 4,
-                      fontWeight: 700,
-                      letterSpacing: 2,
-                      color: PLAYER_COLORS[player],
-                    }}
-                  >
-                    {PLAYER_NAMES[player].toUpperCase()}
-                  </span>
-                ))}
-              </div>
-
-              {columnGames.map((game) => (
-                <div
-                  key={game.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    flex: 1,
-                    borderBottom: "1px solid rgba(255,255,255,0.12)",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      flex: 1,
-                    }}
-                  >
-                    {logo(game.away) && (
-                      <img
-                        src={logo(game.away)!}
-                        width={logoPx}
-                        height={logoPx}
-                      />
-                    )}
-                    <span style={{ fontSize: abbrPx, fontWeight: 700 }}>
-                      {game.away.abbreviation}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: Math.round(abbrPx * 0.72),
-                        color: "#9fb3a4",
-                      }}
-                    >
-                      @
-                    </span>
-                    {logo(game.home) && (
-                      <img
-                        src={logo(game.home)!}
-                        width={logoPx}
-                        height={logoPx}
-                      />
-                    )}
-                    <span style={{ fontSize: abbrPx, fontWeight: 700 }}>
-                      {game.home.abbreviation}
-                    </span>
-                  </div>
-
-                  {PLAYER_IDS.map((player) => {
-                    const side = pickedSide(game, player);
-                    return (
-                      <div
-                        key={player}
-                        style={{
-                          width: 120 * Math.max(scale, 0.8),
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: 6,
-                        }}
-                      >
-                        {logo(side) && (
-                          <img src={logo(side)!} width={logoPx} height={logoPx} />
-                        )}
-                        <span
-                          style={{
-                            fontSize: Math.round(abbrPx * 0.85),
-                            fontWeight: 700,
-                            color: PLAYER_COLORS[player],
-                          }}
-                        >
-                          {side.abbreviation}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+                {PLAYER_NAMES[player].toUpperCase()}
+              </span>
+              <span
+                style={{
+                  color: "#9aa4b2",
+                  fontSize: recordFont,
+                  fontWeight: 700,
+                  marginTop: 2,
+                }}
+              >
+                {formatRecord(records[player])}
+              </span>
             </div>
           ))}
         </div>
+
+        {games.map((game) => (
+          <div key={game.id} style={{ display: "flex", marginTop: gap }}>
+            <div
+              style={{
+                display: "flex",
+                position: "relative",
+                width: matchW,
+              }}
+            >
+              {teamRect(game.away, rectW)}
+              <div style={{ width: seam, display: "flex" }} />
+              {teamRect(game.home, rectW)}
+              <div
+                style={{
+                  position: "absolute",
+                  left: Math.round(rectW + seam / 2 - badgeW / 2),
+                  top: Math.round((rowH - badgeH) / 2),
+                  width: badgeW,
+                  height: badgeH,
+                  background: "#ffffff",
+                  color: "#0b0d12",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: Math.round(badgeH * 0.58),
+                  fontWeight: 700,
+                  borderRadius: 4,
+                }}
+              >
+                AT
+              </div>
+            </div>
+            <div style={{ width: colGap, display: "flex" }} />
+            {teamRect(pickedSide(game, "dad"), pickW)}
+            <div style={{ width: colGap, display: "flex" }} />
+            {teamRect(pickedSide(game, "rich"), pickW)}
+          </div>
+        ))}
       </div>
     ),
-    { width: size.width, height: size.height }
+    { width: W, height: H }
   );
 }

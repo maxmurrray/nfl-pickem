@@ -2,8 +2,9 @@ export type PlayerId = "dad" | "rich";
 
 export const PLAYER_IDS: PlayerId[] = ["dad", "rich"];
 
+// "dad" stays as the stored player id; only the display name is Bruce.
 export const PLAYER_NAMES: Record<PlayerId, string> = {
-  dad: "Dad",
+  dad: "Bruce",
   rich: "Rich",
 };
 
