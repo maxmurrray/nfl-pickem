@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nfl-pickem",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "/Users/maxmurray/Downloads/NFL Radio Graphics/nfl-pickem",
+      "port": 3000
+    }
+  ]
+}
