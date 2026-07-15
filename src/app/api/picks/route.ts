@@ -39,14 +39,25 @@ export async function GET(request: NextRequest) {
     games.filter((g) => isGameLocked(g, now)).map((g) => g.id)
   );
 
+  const gameIds = new Set(games.map((g) => g.id));
+  // Pick counts reveal completeness (for the graphic button) without
+  // revealing which teams the opponent picked.
+  const counts = { dad: 0, rich: 0 };
   const picks: WeekPicks = {};
   for (const row of rows) {
+    if (!gameIds.has(row.gameId)) continue;
+    counts[row.player]++;
     // Hide the opponent's pick until the game locks.
     if (row.player !== viewer && !lockedGameIds.has(row.gameId)) continue;
     (picks[row.gameId] ??= {})[row.player] = row.teamId;
   }
 
-  return NextResponse.json({ picks, persistent: isPersistent() });
+  return NextResponse.json({
+    picks,
+    counts,
+    total: games.length,
+    persistent: isPersistent(),
+  });
 }
 
 /**

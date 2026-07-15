@@ -10,6 +10,7 @@ import {
   type WeekData,
   type WeekPicks,
 } from "@/lib/types";
+import DownloadGraphic from "./DownloadGraphic";
 import GameCard from "./GameCard";
 import { usePlayer } from "./PlayerContext";
 
@@ -23,6 +24,9 @@ export default function WeekView({ weekData }: WeekViewProps) {
   const { season, week, games } = weekData;
 
   const [picks, setPicks] = useState<WeekPicks | null>(null);
+  const [counts, setCounts] = useState<{ dad: number; rich: number } | null>(
+    null
+  );
   const [persistent, setPersistent] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Client clock tick so cards flip to "locked" as kickoffs pass.
@@ -38,6 +42,7 @@ export default function WeekView({ weekData }: WeekViewProps) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setPicks(data.picks);
+      setCounts(data.counts ?? null);
       setPersistent(data.persistent);
       setError(null);
     } catch {
@@ -106,6 +111,17 @@ export default function WeekView({ weekData }: WeekViewProps) {
   const myPickCount = player
     ? games.filter((g) => picks?.[g.id]?.[player]).length
     : 0;
+  const bothComplete =
+    counts !== null &&
+    games.length > 0 &&
+    counts.dad >= games.length &&
+    counts.rich >= games.length;
+  const waitingOnOpponent =
+    !bothComplete &&
+    counts !== null &&
+    player !== null &&
+    counts[player] >= games.length &&
+    games.length > 0;
 
   return (
     <div>
@@ -131,6 +147,14 @@ export default function WeekView({ weekData }: WeekViewProps) {
           )}
         </div>
       </div>
+
+      {bothComplete && <DownloadGraphic season={season} week={week} />}
+      {waitingOnOpponent && player && (
+        <div className="banner">
+          ✅ All your picks are in. The downloadable picks graphic unlocks
+          once {PLAYER_NAMES[otherPlayer(player)]} finishes too.
+        </div>
+      )}
 
       {!persistent && (
         <div className="banner warn">

@@ -27,6 +27,15 @@ season-long battle.
   means threading a `seasonType` through `src/lib/espn.ts` and the picks
   API/table.
 
+## Picks graphic
+
+Once **both** players have picked every game in a week, a
+"Download picks graphic" button appears on that week's page. It renders
+a shareable PNG server-side (`src/app/api/graphic/route.tsx`, via
+`next/og`) in three sizes: Twitter 16:9 (1600×900), square (1080×1080),
+and vertical story (1080×1920). The endpoint refuses to render until
+both players are done, since the graphic reveals all picks.
+
 ## Pages
 
 - `/` — this week's games: tap a team to pick, live scores, lock states,
