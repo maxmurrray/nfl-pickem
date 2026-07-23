@@ -10,6 +10,7 @@ import {
   type WeekData,
   type WeekPicks,
 } from "@/lib/types";
+import { groupByWindow } from "@/lib/windows";
 import DownloadGraphic from "./DownloadGraphic";
 import GameCard from "./GameCard";
 import { usePlayer } from "./PlayerContext";
@@ -76,11 +77,15 @@ export default function WeekView({ weekData }: WeekViewProps) {
     async (gameId: string, teamId: string) => {
       if (!player) return;
       const previous = picks;
+      const previousCounts = counts;
       // Optimistic update; revert on rejection.
       setPicks((current) => ({
         ...(current ?? {}),
         [gameId]: { ...(current?.[gameId] ?? {}), [player]: teamId },
       }));
+      if (!previous?.[gameId]?.[player]) {
+        setCounts((c) => (c ? { ...c, [player]: c[player] + 1 } : c));
+      }
       try {
         const res = await fetch("/api/picks", {
           method: "POST",
@@ -90,17 +95,19 @@ export default function WeekView({ weekData }: WeekViewProps) {
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           setPicks(previous);
+          setCounts(previousCounts);
           setError(data.error ?? "Pick was rejected.");
           setTimeout(() => setError(null), 4000);
           loadPicks();
         }
       } catch {
         setPicks(previous);
+        setCounts(previousCounts);
         setError("Couldn't save your pick — are you online?");
         setTimeout(() => setError(null), 4000);
       }
     },
-    [player, picks, season, week, loadPicks]
+    [player, picks, counts, season, week, loadPicks]
   );
 
   const records = useMemo(
@@ -108,6 +115,14 @@ export default function WeekView({ weekData }: WeekViewProps) {
     [games, picks]
   );
   const completedCount = games.filter((g) => g.completed).length;
+  const weekLeader =
+    completedCount > 0
+      ? records.dad.wins > records.rich.wins
+        ? "dad"
+        : records.rich.wins > records.dad.wins
+          ? "rich"
+          : null
+      : null;
   const myPickCount = player
     ? games.filter((g) => picks?.[g.id]?.[player]).length
     : 0;
@@ -116,12 +131,6 @@ export default function WeekView({ weekData }: WeekViewProps) {
     games.length > 0 &&
     counts.dad >= games.length &&
     counts.rich >= games.length;
-  const waitingOnOpponent =
-    !bothComplete &&
-    counts !== null &&
-    player !== null &&
-    counts[player] >= games.length &&
-    games.length > 0;
 
   return (
     <div>
@@ -130,11 +139,11 @@ export default function WeekView({ weekData }: WeekViewProps) {
         <div className="score-strip-score">
           {completedCount > 0 ? (
             <>
-              <span>
+              <span className={`score-name ${weekLeader === "dad" ? "leading" : ""}`}>
                 {PLAYER_NAMES.dad} <strong>{formatRecord(records.dad)}</strong>
               </span>
               <span className="dot">·</span>
-              <span>
+              <span className={`score-name ${weekLeader === "rich" ? "leading" : ""}`}>
                 {PLAYER_NAMES.rich} <strong>{formatRecord(records.rich)}</strong>
               </span>
             </>
@@ -149,10 +158,12 @@ export default function WeekView({ weekData }: WeekViewProps) {
       </div>
 
       {bothComplete && <DownloadGraphic season={season} week={week} />}
-      {waitingOnOpponent && player && (
+      {!bothComplete && counts !== null && games.length > 0 && (
         <div className="banner">
-          ✅ All your picks are in. The downloadable picks graphic unlocks
-          once {PLAYER_NAMES[otherPlayer(player)]} finishes too.
+          📸 The picks graphic unlocks when every game is picked —{" "}
+          {PLAYER_NAMES.dad} {Math.min(counts.dad, games.length)}/{games.length}{" "}
+          · {PLAYER_NAMES.rich} {Math.min(counts.rich, games.length)}/
+          {games.length}.
         </div>
       )}
 
@@ -164,24 +175,32 @@ export default function WeekView({ weekData }: WeekViewProps) {
       )}
       {error && <div className="banner error">{error}</div>}
 
-      <div className="game-list">
-        {games.map((game) => {
-          const locked = isGameLocked(game, now);
-          return (
-            <GameCard
-              key={game.id}
-              game={game}
-              locked={locked}
-              player={player && ready ? player : null}
-              myPick={player ? picks?.[game.id]?.[player] : undefined}
-              oppPick={
-                player ? picks?.[game.id]?.[otherPlayer(player)] : undefined
-              }
-              onPick={(teamId) => makePick(game.id, teamId)}
-            />
-          );
-        })}
-      </div>
+      {groupByWindow(games).map((win) => (
+        <section className="window" key={win.label}>
+          <div className="window-header">
+            <span className="window-label">{win.label}</span>
+            <span className="window-time">{win.timeLabel}</span>
+          </div>
+          <div className="game-list">
+            {win.games.map((game) => {
+              const locked = isGameLocked(game, now);
+              return (
+                <GameCard
+                  key={game.id}
+                  game={game}
+                  locked={locked}
+                  player={player && ready ? player : null}
+                  myPick={player ? picks?.[game.id]?.[player] : undefined}
+                  oppPick={
+                    player ? picks?.[game.id]?.[otherPlayer(player)] : undefined
+                  }
+                  onPick={(teamId) => makePick(game.id, teamId)}
+                />
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

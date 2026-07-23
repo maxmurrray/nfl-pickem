@@ -1,33 +1,31 @@
+/* =====================================================================
+   THEME TOKENS — single source of truth. Change these and every page
+   (games, leaderboard, past weeks) follows.
+   ===================================================================== */
 :root {
-  --bg: #f2f4f0;
-  --card: #ffffff;
-  --border: #dbe0d8;
-  --text: #16211a;
-  --muted: #66716a;
-  --accent: #0b6e3c; /* field green */
-  --accent-soft: #e2f2e8;
-  --win: #0b6e3c;
-  --loss: #c0392b;
-  --live: #c0392b;
-  --lock: #8a6d1a;
-  --pill: #e7eae4;
-}
+  --bg: #0b0c0f;               /* near-black page background */
+  --card: #16181d;             /* neutral dark card surface (spec) */
+  --surface-2: #1e2128;        /* chips / pills — a hair lighter than the card */
+  --border: rgba(255, 255, 255, 0.06);   /* hairline border = "elevation" */
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #e7e9ee;
+  --muted: rgba(255, 255, 255, 0.45);     /* section headers, secondary text */
+  --muted-2: rgba(255, 255, 255, 0.3);
+  --accent: #3dbf7a;           /* green — leader underline, active tab, CTA */
+  --accent-soft: #16301f;
+  --win: #46d17f;
+  --loss: #ff6b5e;
+  --live: #ff5c5c;
+  --lock: #e0b64a;
+  --pill: #1e2128;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #10150f;
-    --card: #1a221a;
-    --border: #2c362c;
-    --text: #eef2ec;
-    --muted: #97a297;
-    --accent: #3dbf7a;
-    --accent-soft: #16301f;
-    --win: #3dbf7a;
-    --loss: #ff7a6b;
-    --live: #ff7a6b;
-    --lock: #d9b64a;
-    --pill: #232c23;
-  }
+  /* ---- TWEAK KNOBS (team identity accents) ---------------------------
+     --tint-opacity : how strong the team-color wash is on a SELECTED team
+                      cell (0 = none, 1 = full). Spec target ≈ 0.12.
+     --stripe-width : width of the team-color accent stripe on the left
+                      edge of each team cell. Spec target ≈ 3–4px.          */
+  --tint-opacity: 0.12;
+  --stripe-width: 3px;
 }
 
 * {
@@ -66,7 +64,8 @@ button {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--card);
+  background: color-mix(in srgb, var(--bg) 82%, #000);
+  backdrop-filter: saturate(140%) blur(8px);
   border-bottom: 1px solid var(--border);
 }
 
@@ -85,7 +84,7 @@ button {
 
 .brand {
   font-weight: 800;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
@@ -98,6 +97,7 @@ button {
 .player-toggle {
   display: flex;
   background: var(--pill);
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 3px;
 }
@@ -106,15 +106,15 @@ button {
   border: none;
   background: transparent;
   border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 0.85rem;
+  padding: 7px 12px;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--muted);
 }
 
 .player-toggle-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: #05130c;
 }
 
 .tabs {
@@ -126,9 +126,9 @@ button {
 .tab {
   padding: 10px 16px;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   color: var(--muted);
-  border-bottom: 3px solid transparent;
+  border-bottom: 2px solid transparent;
 }
 
 .tab.active {
@@ -142,7 +142,7 @@ button {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -151,6 +151,7 @@ button {
 
 .chooser-card {
   background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 16px;
   padding: 24px;
   width: 100%;
@@ -174,9 +175,10 @@ button {
   width: 100%;
   padding: 16px;
   margin-bottom: 10px;
-  border: 2px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
-  background: var(--bg);
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 1.1rem;
   font-weight: 700;
 }
@@ -209,12 +211,14 @@ button {
 
 .week-pill {
   flex: 0 0 auto;
-  padding: 8px 14px;
+  padding: 7px 13px;
   border-radius: 999px;
   background: var(--pill);
-  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .week-pill.current {
@@ -223,36 +227,75 @@ button {
 
 .week-pill.active {
   background: var(--accent);
-  color: #fff;
+  border-color: transparent;
+  color: #05130c;
 }
 
 /* ---------- Score strip ---------- */
 
 .score-strip {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 16px;
-  margin-bottom: 12px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
 }
 
 .score-strip-title {
-  font-weight: 800;
-  font-size: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .score-strip-score {
   display: flex;
-  gap: 8px;
-  font-size: 0.95rem;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-name {
+  position: relative;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.score-name strong {
+  color: var(--text);
+  font-weight: 800;
+  margin-left: 3px;
+}
+
+.score-name.leading {
+  color: var(--text);
+}
+
+.score-name.leading::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 .dot {
-  color: var(--muted);
+  color: var(--muted-2);
 }
 
 .muted {
@@ -269,11 +312,11 @@ button {
   width: 100%;
   padding: 14px;
   border: none;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--accent);
-  color: #fff;
+  color: #05130c;
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .graphic-btn:active {
@@ -294,9 +337,10 @@ button {
   align-items: center;
   gap: 2px;
   padding: 12px 6px;
-  border: 2px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--card);
+  color: var(--text);
 }
 
 .graphic-size-btn:disabled {
@@ -318,20 +362,53 @@ button {
 .banner {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 12px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  color: var(--muted);
 }
 
 .banner.warn {
-  border-color: var(--lock);
+  border-color: color-mix(in srgb, var(--lock) 45%, var(--border));
   color: var(--lock);
 }
 
 .banner.error {
-  border-color: var(--loss);
+  border-color: color-mix(in srgb, var(--loss) 45%, var(--border));
   color: var(--loss);
+}
+
+/* ---------- Kickoff-window sections ---------- */
+
+.window {
+  margin-top: 20px;
+}
+
+.window:first-of-type {
+  margin-top: 4px;
+}
+
+.window-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 4px 8px;
+}
+
+.window-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.window-time {
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Game cards ---------- */
@@ -339,169 +416,252 @@ button {
 .game-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .game-card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 12px 14px;
 }
 
 .game-card.live {
-  border-color: var(--live);
+  border-color: color-mix(in srgb, var(--live) 40%, var(--border));
 }
 
-.game-meta {
+.gamecard-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin: 2px 4px 10px;
-  font-size: 0.8rem;
-  color: var(--muted);
+  margin-bottom: 10px;
+  font-size: 0.72rem;
+  min-height: 14px;
 }
 
-.game-state {
-  font-weight: 700;
+.gc-broadcast {
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.game-state.state-in {
+.gc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gc-status.status-in {
   color: var(--live);
 }
 
-.game-state.locked {
+.gc-status.locked {
   color: var(--lock);
 }
 
+.gamecard-body {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
 .matchup {
+  flex: 1 1 auto;
   display: flex;
   align-items: stretch;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .at-sign {
   align-self: center;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 700;
+  color: var(--muted-2);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
+.picks {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+}
+
+/* Stack matchup over picks on phones */
+@media (max-width: 470px) {
+  .gamecard-body {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .picks {
+    justify-content: flex-start;
+    padding-left: 2px;
+  }
+}
+
+/* ---- team cell (tappable) ---- */
+
 .team-btn {
+  position: relative;
+  overflow: hidden;
   flex: 1 1 0;
   min-width: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 12px 8px 10px;
-  border: 2px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg);
+  gap: 8px;
+  padding: 9px 10px 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
   transition:
-    border-color 0.15s ease,
+    opacity 0.15s ease,
     background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
     transform 0.08s ease;
 }
 
-.team-btn:not(:disabled):active {
-  transform: scale(0.97);
+/* team-color accent stripe on the left edge */
+.team-btn::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--stripe-width);
+  background: var(--team-color, var(--muted-2));
 }
 
+.team-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* the side you didn't pick (once a pick exists) recedes */
+.team-btn.dimmed {
+  opacity: 0.4;
+}
+
+/* selected: subtle team-color wash + ring/glow, full opacity */
 .team-btn.picked {
-  border-color: var(--team-color, var(--accent));
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--team-color, var(--accent));
+  opacity: 1;
+  background: color-mix(
+    in srgb,
+    var(--team-color, var(--accent)) calc(var(--tint-opacity) * 100%),
+    var(--card)
+  );
+  border-color: color-mix(in srgb, var(--team-color, var(--accent)) 55%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--team-color, var(--accent)) 60%, transparent),
+    0 0 14px -4px var(--team-color, var(--accent));
+}
+
+.team-btn.loser {
+  opacity: 0.45;
+}
+
+.team-btn.picked.loser {
+  opacity: 0.7;
 }
 
 .team-btn:disabled {
   cursor: default;
 }
 
-.team-btn.locked:not(.picked) {
-  opacity: 0.75;
-}
-
-.team-btn.loser {
-  opacity: 0.6;
-}
-
-.team-btn.loser.picked {
-  opacity: 0.85;
-}
-
 .team-logo {
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .team-logo-fallback {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 34px;
+  height: 34px;
   font-weight: 800;
-  background: var(--pill);
+  font-size: 0.78rem;
+  background: var(--surface-2);
   border-radius: 50%;
 }
 
-.team-name {
-  font-weight: 700;
+.team-abbr {
+  font-weight: 800;
   font-size: 0.92rem;
-  text-align: center;
+  letter-spacing: 0.02em;
 }
 
 .team-score {
-  font-size: 1.3rem;
+  margin-left: auto;
+  font-size: 1.15rem;
   font-weight: 800;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-score.winner {
   color: var(--text);
 }
 
-.pick-check {
-  height: 1.3rem;
-  font-size: 1rem;
-  font-weight: 800;
-  color: transparent;
-}
+/* ---- picks region ---- */
 
-.pick-check.on {
-  color: var(--team-color, var(--accent));
-}
-
-.game-footer {
+.pick-slot {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-  min-height: 24px;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
 }
 
-.footer-hint {
-  font-size: 0.78rem;
+.pick-slot-name {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--muted);
-  margin-left: 4px;
 }
 
 .pick-chip {
-  font-size: 0.8rem;
-  font-weight: 600;
-  background: var(--pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
   border-radius: 999px;
-  padding: 4px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pick-chip .chip-logo {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.pick-chip.empty,
+.pick-chip.hidden {
+  color: var(--muted-2);
+  font-weight: 600;
 }
 
 .pick-chip.right {
-  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--win) 45%, var(--border));
   color: var(--win);
 }
 
 .pick-chip.wrong {
+  border-color: color-mix(in srgb, var(--loss) 45%, var(--border));
   color: var(--loss);
 }
 
@@ -510,7 +670,7 @@ button {
 .leader-callout {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 20px 16px;
   text-align: center;
   margin-bottom: 14px;
@@ -530,13 +690,35 @@ button {
 .season-totals {
   display: flex;
   justify-content: center;
-  gap: 10px;
-  margin-top: 12px;
-  font-size: 1.1rem;
+  gap: 14px;
+  margin-top: 14px;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.season-totals span {
+  position: relative;
+  color: var(--muted);
+}
+
+.season-totals strong {
+  color: var(--text);
+  margin-left: 3px;
 }
 
 .season-totals .leading {
-  color: var(--accent);
+  color: var(--text);
+}
+
+.season-totals .leading::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 .week-table {
@@ -544,8 +726,9 @@ button {
   border-collapse: collapse;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   overflow: hidden;
+  font-variant-numeric: tabular-nums;
 }
 
 .week-table th,
@@ -553,14 +736,15 @@ button {
   padding: 12px 14px;
   text-align: left;
   border-bottom: 1px solid var(--border);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
 }
 
 .week-table th {
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   color: var(--muted);
+  font-weight: 700;
 }
 
 .week-table tr:last-child td {
