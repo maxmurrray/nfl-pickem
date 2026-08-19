@@ -48,3 +48,48 @@ create policy "anon update picks"
   to anon
   using (true)
   with check (player in ('dad', 'rich'));
+
+
+-- ===========================================================================
+-- Division Predictions (additive feature — its own tab, data, and export).
+-- Each player predicts, for all eight divisions, a finishing order (rank 1–4)
+-- and a projected 17-game record for each team. One row per team.
+-- Note: player is stored as 'bruce'/'rich' here (the app maps its 'dad' id to
+-- 'bruce' at the store boundary).
+-- ===========================================================================
+create table public.division_predictions (
+  id uuid primary key default gen_random_uuid(),
+  season int not null,
+  player text not null check (player in ('bruce', 'rich')),
+  conference text not null check (conference in ('AFC', 'NFC')),
+  division text not null check (division in ('East', 'North', 'South', 'West')),
+  team_abbr text not null,
+  rank int not null check (rank between 1 and 4),
+  wins int not null check (wins between 0 and 17),
+  losses int not null check (losses between 0 and 17),
+  updated_at timestamptz not null default now(),
+  unique (season, player, conference, division, team_abbr)
+);
+
+create trigger division_predictions_set_updated_at
+  before update on public.division_predictions
+  for each row
+  execute function public.set_updated_at();
+
+alter table public.division_predictions enable row level security;
+
+create policy "anon read division_predictions"
+  on public.division_predictions for select
+  to anon
+  using (true);
+
+create policy "anon insert division_predictions"
+  on public.division_predictions for insert
+  to anon
+  with check (player in ('bruce', 'rich'));
+
+create policy "anon update division_predictions"
+  on public.division_predictions for update
+  to anon
+  using (true)
+  with check (player in ('bruce', 'rich'));

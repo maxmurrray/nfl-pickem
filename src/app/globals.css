@@ -760,3 +760,274 @@ button {
   font-weight: 700;
   text-align: right;
 }
+
+/* =====================================================================
+   DIVISION PREDICTIONS TAB (additive — new feature, its own styles).
+   Uses the shared theme tokens so it feels native; conference accent
+   colors (AFC #CE1126 / NFC #143D66) are applied inline per-conference.
+   ===================================================================== */
+.div-screen {
+  padding-bottom: 40px;
+}
+.div-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 4px 0 2px;
+}
+.div-sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 14px;
+}
+
+/* Conference segmented control */
+.seg {
+  display: flex;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+.seg-btn {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.seg-btn.active {
+  color: #fff;
+}
+
+/* Division cards */
+.div-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+@media (min-width: 560px) {
+  .div-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.div-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.div-card-head {
+  padding: 8px 12px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+.div-card-cols {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px 4px;
+  color: var(--muted-2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.dcc-rank {
+  width: 62px;
+}
+.dcc-team {
+  flex: 1;
+}
+.dcc-rec {
+  width: 92px;
+  text-align: center;
+}
+
+.div-team-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+}
+.rank-col {
+  width: 62px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rank-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13px;
+}
+.reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reorder-btn {
+  width: 22px;
+  height: 15px;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reorder-btn:disabled {
+  opacity: 0.3;
+}
+.team-cell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dt-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.dt-abbr {
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+.rec-inputs {
+  width: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.rec-input {
+  width: 34px;
+  padding: 6px 0;
+  text-align: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 15px;
+}
+.rec-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.rec-input:disabled {
+  opacity: 0.55;
+}
+.rec-dash {
+  color: var(--muted);
+  font-weight: 700;
+}
+.warn-note {
+  padding: 8px 12px;
+  color: var(--lock);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--lock) 10%, transparent);
+}
+
+/* Save row */
+.div-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.save-btn {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.save-btn:disabled {
+  opacity: 0.6;
+}
+.saved-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Graphics panel */
+.graphics-panel {
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+.graphics-title {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0 0 8px;
+}
+.locked-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+.gfx-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.gfx-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gfx-preview {
+  width: 100%;
+  aspect-ratio: 770 / 1400;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  object-fit: contain;
+}
+.gfx-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  color: var(--muted-2);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.1em;
+}
+.gfx-btn {
+  padding: 11px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 13px;
+}
+.gfx-btn:disabled {
+  opacity: 0.45;
+}

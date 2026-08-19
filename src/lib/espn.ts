@@ -58,6 +58,25 @@ export async function getWeekGames(
   return { season, week, games };
 }
 
+/**
+ * Kickoff (epoch ms) of the FIRST regular-season game of the season — the
+ * moment division predictions lock. null if week 1 isn't scheduled yet.
+ */
+export async function getSeasonLockTime(season: number): Promise<number | null> {
+  const { games } = await getWeekGames(season, 1);
+  if (games.length === 0) return null;
+  return Math.min(...games.map((g) => new Date(g.kickoff).getTime()));
+}
+
+/** Whether the season's predictions are locked (first kickoff has passed). */
+export async function isSeasonLocked(
+  season: number,
+  now: number = Date.now()
+): Promise<boolean> {
+  const lock = await getSeasonLockTime(season);
+  return lock !== null && lock <= now;
+}
+
 function parseEvent(event: any): Game {
   const competition = event?.competitions?.[0] ?? {};
   const competitors: any[] = competition?.competitors ?? [];

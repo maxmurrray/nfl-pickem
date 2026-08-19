@@ -39,6 +39,12 @@ export default function Header() {
           >
             Leaderboard
           </Link>
+          <Link
+            href="/divisions"
+            className={`tab ${pathname.startsWith("/divisions") ? "active" : ""}`}
+          >
+            Divisions
+          </Link>
         </nav>
       </div>
 
