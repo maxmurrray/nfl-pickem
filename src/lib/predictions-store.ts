@@ -43,9 +43,39 @@ export function isPersistent(): boolean {
   return supabase() !== null;
 }
 
-// Dev-only in-memory fallback (mirrors picks-store) — vanishes on restart.
+// Dev fallback when Supabase isn't configured. This used to be memory-only,
+// which meant a whole conference of predictions vanished on every server
+// restart — and silently, because the save still reported success. It now
+// mirrors to a JSON file so local work survives restarts.
+//
+// This is NOT a substitute for Supabase: serverless instances don't share a
+// filesystem, so a deployment still needs SUPABASE_URL / SUPABASE_ANON_KEY.
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+
+const DEV_STORE = join(process.cwd(), ".data", "division-predictions.json");
+
+function loadFromDisk(): Map<string, DivisionPrediction> {
+  try {
+    const raw = readFileSync(DEV_STORE, "utf8");
+    const rows: DivisionPrediction[] = JSON.parse(raw);
+    return new Map(rows.map((r) => [memoryKey(r), r]));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveToDisk(map: Map<string, DivisionPrediction>): void {
+  try {
+    mkdirSync(dirname(DEV_STORE), { recursive: true });
+    writeFileSync(DEV_STORE, JSON.stringify([...map.values()], null, 2));
+  } catch {
+    /* best effort — a read-only fs just means we're back to memory-only */
+  }
+}
+
 const memory: Map<string, DivisionPrediction> = ((globalThis as any)
-  .__predictionMemory ??= new Map());
+  .__predictionMemory ??= loadFromDisk());
 
 function memoryKey(
   p: Pick<
@@ -95,6 +125,7 @@ export async function upsertPredictions(
   const db = supabase();
   if (!db) {
     for (const row of rows) memory.set(memoryKey(row), row);
+    saveToDisk(memory);
     return;
   }
   const { error } = await db.from("division_predictions").upsert(

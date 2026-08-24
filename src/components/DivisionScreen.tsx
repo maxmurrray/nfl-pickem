@@ -68,6 +68,7 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
   const [locked, setLocked] = useState(initialLocked);
   const [saving, setSaving] = useState<Conference | null>(null);
   const [savedAt, setSavedAt] = useState<Partial<Record<Conference, string>>>({});
+  const [persistent, setPersistent] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Team metadata lookup (logos/names) for rendering rows.
@@ -212,6 +213,11 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
         if (res.status === 409) setLocked(true);
         throw new Error(data.error ?? "Couldn't save predictions.");
       }
+      // The API reports whether this landed in the database or only in the
+      // server's memory (no SUPABASE_URL / SUPABASE_ANON_KEY configured).
+      // A memory-only save vanishes on restart and never reaches the graphic,
+      // so it must not be reported as "Saved".
+      setPersistent(data.persistent !== false);
       setSavedAt((prev) => ({ ...prev, [conf]: new Date().toLocaleTimeString() }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed.");
@@ -349,7 +355,15 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
           >
             {saving === conf ? "Saving…" : `Save ${conf} predictions`}
           </button>
-          {savedAt[conf] && <span className="saved-note">Saved · {savedAt[conf]}</span>}
+          {savedAt[conf] &&
+            (persistent ? (
+              <span className="saved-note">Saved · {savedAt[conf]}</span>
+            ) : (
+              <span className="saved-note" style={{ color: "#B00020" }}>
+                Not stored — no database configured. These predictions will be
+                lost and won&rsquo;t appear on the downloaded graphic.
+              </span>
+            ))}
         </div>
       )}
       {error && <div className="banner error">{error}</div>}

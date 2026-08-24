@@ -9,6 +9,8 @@ import {
   type Division,
 } from "@/lib/divisions";
 import { getPredictionsForSeason, toDbPlayer } from "@/lib/predictions-store";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { isPlayerId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +68,21 @@ async function loadFonts(): Promise<FontDef[] | undefined> {
 }
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+/**
+ * Read a PNG that ships in /public. Going over HTTP put these behind
+ * fetchPng's 24h revalidate cache, so swapping an asset didn't take effect
+ * until the cache aged out. Reading from disk is both faster and current.
+ */
+async function localPng(relPath: string): Promise<string> {
+  try {
+    const buf = await readFile(join(process.cwd(), "public", relPath));
+    if (buf.length < 100 || !buf.subarray(0, 4).equals(PNG_MAGIC)) return "";
+    return `data:image/png;base64,${buf.toString("base64")}`;
+  } catch {
+    return "";
+  }
+}
 
 async function fetchPng(url: string): Promise<string> {
   for (const init of [{ next: { revalidate: 86400 } }, { cache: "no-store" }] as RequestInit[]) {
@@ -188,9 +205,12 @@ export async function GET(request: NextRequest) {
 
   // Conference mark (full-color) — used both in the header and, on a white chip,
   // inside each division bar.
-  const origin = request.nextUrl.origin;
   const base = conference.toLowerCase();
-  const confLogo = await fetchPng(`${origin}/logos/${base}.png`);
+  const confLogo = await localPng(`logos/${base}.png`);
+  // Knockout mark for the coloured division bar. The full-colour AFC shield is
+  // red and disappears on a red bar, which is why a white chip used to sit
+  // behind it; the white asset removes the need for the chip entirely.
+  const confLogoWhite = await localPng(`logos/${base}-white.png`);
 
   const accent = conference === "AFC" ? COLORS.afc : COLORS.nfc;
   const barGrad = conference === "AFC" ? COLORS.afcBar : COLORS.nfcBar;
@@ -261,23 +281,7 @@ export async function GET(request: NextRequest) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", width: u(40), paddingLeft: u(8) }}>
-          {confLogo ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: COLORS.white,
-                borderRadius: u(5),
-                paddingLeft: u(4),
-                paddingRight: u(4),
-                paddingTop: u(3),
-                paddingBottom: u(3),
-              }}
-            >
-              <img src={confLogo} height={u(14)} />
-            </div>
-          ) : null}
+          {confLogoWhite ? <img src={confLogoWhite} height={u(18)} /> : null}
         </div>
         <div
           style={{
