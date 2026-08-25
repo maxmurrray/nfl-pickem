@@ -69,6 +69,7 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
   const [saving, setSaving] = useState<Conference | null>(null);
   const [savedAt, setSavedAt] = useState<Partial<Record<Conference, string>>>({});
   const [persistent, setPersistent] = useState(true);
+  const [partial, setPartial] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   // A save error is the only thing telling you why nothing happened, and it
@@ -112,10 +113,18 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
           }
           for (const [key, preds] of byDiv) {
             const [c, d] = key.split(":") as [Conference, Division];
-            if (preds.length !== 4) continue;
-            next[c][d] = [...preds]
-              .sort((a, b) => a.rank - b.rank)
-              .map((p) => ({ abbr: p.teamAbbr, wins: String(p.wins), losses: String(p.losses) }));
+            // Overlay whatever was saved onto the existing row order. Skipping
+            // divisions that lacked all four rows meant a partial save could
+            // never be loaded back and looked like it had been lost.
+            const saved = new Map(preds.map((p) => [p.teamAbbr, p]));
+            const ordered = [...preds].sort((a, b) => a.rank - b.rank).map((p) => p.teamAbbr);
+            const rest = next[c][d].map((r) => r.abbr).filter((a) => !saved.has(a));
+            next[c][d] = [...ordered, ...rest].map((abbr) => {
+              const p = saved.get(abbr);
+              return p
+                ? { abbr, wins: String(p.wins), losses: String(p.losses) }
+                : { abbr, wins: "", losses: "" };
+            });
           }
           return next;
         });
@@ -203,17 +212,12 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
         }
       }
     }
-    if (missing.length > 0) {
-      setError(
-        `${conf} not saved — ${missing.length} team${missing.length === 1 ? "" : "s"} ` +
-          `still need a record: ${missing.join(", ")}. Every team needs a 17-game record.`
-      );
-      return;
-    }
-
+    // Save whatever is filled in. A blank team is simply not submitted yet -
+    // it no longer throws away the fifteen rows next to it.
     for (const division of DIVISIONS) {
       const list = board[conf][division];
       for (let i = 0; i < list.length; i++) {
+        if (list[i].wins === "" || list[i].losses === "") continue;
         predictions.push({
           division,
           teamAbbr: list[i].abbr,
@@ -222,6 +226,11 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
           losses: Number(list[i].losses),
         });
       }
+    }
+
+    if (predictions.length === 0) {
+      setError(`Nothing to save in ${conf} yet — fill in at least one record.`);
+      return;
     }
 
     setSaving(conf);
@@ -242,6 +251,7 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
       // A memory-only save vanishes on restart and never reaches the graphic,
       // so it must not be reported as "Saved".
       setPersistent(data.persistent !== false);
+      setPartial(missing.length > 0 ? missing.length : 0);
       setSavedAt((prev) => ({ ...prev, [conf]: new Date().toLocaleTimeString() }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed.");
@@ -381,7 +391,12 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
           </button>
           {savedAt[conf] &&
             (persistent ? (
-              <span className="saved-note">Saved · {savedAt[conf]}</span>
+              <span className="saved-note">
+                Saved &middot; {savedAt[conf]}
+                {partial > 0 && (
+                  <> &mdash; {partial} team{partial === 1 ? "" : "s"} still blank, fill them in and save again</>
+                )}
+              </span>
             ) : (
               <span className="saved-note" style={{ color: "#B00020" }}>
                 Not stored — no database configured. These predictions will be

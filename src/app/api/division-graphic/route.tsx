@@ -168,18 +168,20 @@ export async function GET(request: NextRequest) {
         )
         .sort((a, b) => a.rank - b.rank);
 
-      const rows: Row[] =
-        preds.length === 4
-          ? preds.map((p) => ({
-              abbr: p.teamAbbr,
-              logo: "",
-              rec: `${p.wins}-${p.losses}`,
-            }))
-          : DIVISION_TEAMS[conference][division].map((abbr) => ({
-              abbr,
-              logo: "",
-              rec: "—",
-            }));
+      // Draw whatever exists. Requiring all four rows meant one unfilled team
+      // blanked the entire division, which is why a mostly-complete conference
+      // still exported as nothing but dashes.
+      const saved = new Map(preds.map((p) => [p.teamAbbr, p]));
+      const ordered = preds.map((p) => p.teamAbbr);
+      const rest = DIVISION_TEAMS[conference][division].filter((a) => !saved.has(a));
+      const rows: Row[] = [...ordered, ...rest].map((abbr) => {
+        const p = saved.get(abbr);
+        return {
+          abbr,
+          logo: "",
+          rec: p ? `${p.wins}-${p.losses}` : "—",
+        };
+      });
       return { division, rows };
     });
 

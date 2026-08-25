@@ -143,19 +143,26 @@ export async function POST(request: NextRequest) {
     byDivision.set(raw.division, list);
   }
 
+  // Partial saves are allowed, the same way a single weekly pick saves on its
+  // own. Requiring all sixteen teams meant one blank field threw away every
+  // other row the user had filled in, and the graphic then had nothing to draw.
+  // Each row still has to be internally valid (checked above); the conference
+  // simply does not have to be complete.
   for (const division of DIVISIONS) {
     const rows = byDivision.get(division) ?? [];
-    const expected = DIVISION_TEAMS[conference][division];
+    const expected = new Set(DIVISION_TEAMS[conference][division]);
+    for (const r of rows) {
+      if (!expected.has(r.teamAbbr)) {
+        return NextResponse.json(
+          { error: `${r.teamAbbr} is not in ${conference} ${division}.` },
+          { status: 400 }
+        );
+      }
+    }
     const abbrs = new Set(rows.map((r) => r.teamAbbr));
-    const ranks = new Set(rows.map((r) => r.rank));
-    const abbrsOk =
-      rows.length === expected.length &&
-      expected.every((a) => abbrs.has(a)) &&
-      abbrs.size === expected.length;
-    const ranksOk = ranks.size === 4 && [1, 2, 3, 4].every((r) => ranks.has(r));
-    if (!abbrsOk || !ranksOk) {
+    if (abbrs.size !== rows.length) {
       return NextResponse.json(
-        { error: `Invalid ${conference} ${division}: need all four teams ranked 1–4.` },
+        { error: `Duplicate team in ${conference} ${division}.` },
         { status: 400 }
       );
     }
