@@ -71,6 +71,16 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
   const [persistent, setPersistent] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // A save error is the only thing telling you why nothing happened, and it
+  // renders below sixteen team rows. Bring it to the user rather than hoping
+  // they scroll to it.
+  useEffect(() => {
+    if (!error) return;
+    document
+      .querySelector(".banner.error")
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [error]);
+
   // Team metadata lookup (logos/names) for rendering rows.
   const metaByAbbr = useMemo(() => {
     const m = new Map<string, DivisionGroup["teams"][number]>();
@@ -181,21 +191,35 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
       wins: number;
       losses: number;
     }[] = [];
+    // Collect every incomplete entry, not just the first. Bailing on the first
+    // blank meant a half-filled conference took several save attempts to fix,
+    // each one reporting the same vague message.
+    const missing: string[] = [];
     for (const division of DIVISIONS) {
       const list = board[conf][division];
       for (let i = 0; i < list.length; i++) {
-        const w = list[i].wins;
-        const l = list[i].losses;
-        if (w === "" || l === "") {
-          setError(`Fill in every record in ${conf} ${division} (they must total 17).`);
-          return;
+        if (list[i].wins === "" || list[i].losses === "") {
+          missing.push(`${division} ${list[i].abbr}`);
         }
+      }
+    }
+    if (missing.length > 0) {
+      setError(
+        `${conf} not saved — ${missing.length} team${missing.length === 1 ? "" : "s"} ` +
+          `still need a record: ${missing.join(", ")}. Every team needs a 17-game record.`
+      );
+      return;
+    }
+
+    for (const division of DIVISIONS) {
+      const list = board[conf][division];
+      for (let i = 0; i < list.length; i++) {
         predictions.push({
           division,
           teamAbbr: list[i].abbr,
           rank: i + 1,
-          wins: Number(w),
-          losses: Number(l),
+          wins: Number(list[i].wins),
+          losses: Number(list[i].losses),
         });
       }
     }
