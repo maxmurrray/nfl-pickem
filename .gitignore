@@ -10,3 +10,7 @@ next-env.d.ts
 
 # local dev fallback store (not a real database)
 .data/
+
+# agent skill content — installed per machine via `npx skills add`
+.agents/
+.claude/skills/

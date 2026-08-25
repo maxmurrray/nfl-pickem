@@ -93,3 +93,18 @@ create policy "anon update division_predictions"
   to anon
   using (true)
   with check (player in ('bruce', 'rich'));
+
+-- ===========================================================================
+-- Data API exposure.
+--
+-- RLS above decides which ROWS are visible. It does not decide whether the
+-- table is reachable at all — that is a plain Postgres GRANT. Depending on a
+-- project's Data API settings, tables created by SQL are not always granted
+-- to the anon role automatically, which shows up as "permission denied" or
+-- empty results even though the policies look correct.
+--
+-- Idempotent: safe to re-run.
+-- ===========================================================================
+grant usage on schema public to anon;
+grant select, insert, update on public.picks to anon;
+grant select, insert, update on public.division_predictions to anon;
