@@ -7,8 +7,10 @@ import {
   type Division,
 } from "@/lib/divisions";
 import {
+  deletePredictions,
   getPredictionsForSeason,
   isPersistent,
+  ResetUnavailableError,
   toDbPlayer,
   upsertPredictions,
   type DivisionPrediction,
@@ -182,4 +184,49 @@ export async function POST(request: NextRequest) {
 
   await upsertPredictions(toSave);
   return NextResponse.json({ ok: true, persistent: isPersistent() });
+}
+
+/**
+ * DELETE /api/predictions?season=2026&player=rich
+ *
+ * Clears one player's own division predictions (both conferences) so their
+ * board comes back blank — the "start over" button on the predictions page.
+ *
+ * Only ever touches the player named in the request, and only their division
+ * predictions: weekly picks live in a different table and are left alone.
+ * Locked once the season kicks off, matching POST — after the first game the
+ * predictions are public and scored, so wiping them is no longer a reset.
+ */
+export async function DELETE(request: NextRequest) {
+  const params = request.nextUrl.searchParams;
+  const season = Number(params.get("season"));
+  const player = params.get("player");
+
+  if (!Number.isInteger(season)) {
+    return NextResponse.json({ error: "Invalid season" }, { status: 400 });
+  }
+  if (!isPlayerId(player)) {
+    return NextResponse.json({ error: "Invalid player" }, { status: 400 });
+  }
+
+  const lockTime = await getSeasonLockTime(season);
+  if (lockTime !== null && lockTime <= Date.now()) {
+    return NextResponse.json(
+      { error: "Predictions are locked — the season has started." },
+      { status: 409 }
+    );
+  }
+
+  try {
+    const removed = await deletePredictions(season, toDbPlayer(player));
+    return NextResponse.json({ ok: true, removed });
+  } catch (e) {
+    if (e instanceof ResetUnavailableError) {
+      return NextResponse.json({ error: e.message }, { status: 503 });
+    }
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Reset failed." },
+      { status: 500 }
+    );
+  }
 }

@@ -71,6 +71,8 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
   const [persistent, setPersistent] = useState(true);
   const [partial, setPartial] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [cleared, setCleared] = useState(false);
 
   // A save error is the only thing telling you why nothing happened, and it
   // renders below sixteen team rows. Bring it to the user rather than hoping
@@ -252,11 +254,52 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
       // so it must not be reported as "Saved".
       setPersistent(data.persistent !== false);
       setPartial(missing.length > 0 ? missing.length : 0);
+      setCleared(false);
       setSavedAt((prev) => ({ ...prev, [conf]: new Date().toLocaleTimeString() }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed.");
     } finally {
       setSaving(null);
+    }
+  }
+
+  /**
+   * Wipe this player's own saved records and blank the board.
+   *
+   * Both conferences, not just the one on screen: clearing AFC and leaving NFC
+   * behind is a half-reset that still looks filled in the moment you switch tabs.
+   * Weekly picks are a different table and are deliberately untouched.
+   */
+  async function clearMine() {
+    if (!player || locked || clearing) return;
+    const who = player === "dad" ? "Bruce" : "Rich";
+    const ok = window.confirm(
+      `Clear all of ${who}'s AFC and NFC records?\n\n` +
+        `Every team's ranking and projected record is deleted and the board goes ` +
+        `back to blank. This can't be undone. Weekly game picks are not affected.`
+    );
+    if (!ok) return;
+
+    setClearing(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/predictions?season=${season}&player=${player}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 409) setLocked(true);
+        throw new Error(data.error ?? "Couldn't clear the records.");
+      }
+      setBoard(blankBoard(groups));
+      setSavedAt({});
+      setPartial(0);
+      setCleared(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Clear failed.");
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -389,6 +432,17 @@ export default function DivisionScreen({ season, groups, initialLocked, lockTime
           >
             {saving === conf ? "Saving…" : `Save ${conf} predictions`}
           </button>
+          <button
+            type="button"
+            className="clear-btn"
+            disabled={saving !== null || clearing}
+            onClick={clearMine}
+          >
+            {clearing ? "Clearing…" : "Start over"}
+          </button>
+          {cleared && !savedAt[conf] && (
+            <span className="saved-note">Records cleared — the board is blank.</span>
+          )}
           {savedAt[conf] &&
             (persistent ? (
               <span className="saved-note">

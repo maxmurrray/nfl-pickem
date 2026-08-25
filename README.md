@@ -41,6 +41,34 @@ both players are done, since the graphic reveals all picks. A few teams
 use ESPN's white "-dark" logo variant so the logo doesn't vanish
 against its own team color (see `WHITE_LOGO_TEAMS`).
 
+## Starting over
+
+Each player can wipe their own division predictions with the **Start over**
+button under the save row on `/divisions`. It clears both conferences for that
+player only, behind a confirm dialog, and leaves weekly picks alone (different
+table). Like saving, it is refused once the season kicks off.
+
+The site runs on the Supabase anon key, which has select/insert/update but
+deliberately **no delete** — so nobody can wipe a season by pointing a script
+at the public key. Deleting therefore uses the `service_role` key, read
+server-side in `deletePredictions()` and never sent to the browser. Without
+`SUPABASE_SERVICE_ROLE_KEY` set, the endpoint returns a clear 503 instead of
+silently doing nothing (a delete the anon key isn't allowed to make still comes
+back as a cheerful success, so the store re-checks rather than trusting it).
+
+From a terminal, `scripts/reset-player.mjs` does the same job and can also
+clear weekly picks, backing up to `.data/` first:
+
+```
+node scripts/reset-player.mjs rich            # records + picks
+node scripts/reset-player.mjs rich --records  # records only
+node scripts/reset-player.mjs rich --dry-run  # count, delete nothing
+```
+
+Note the two tables use different ids for the same person: `picks` stores Bruce
+as `dad`, `division_predictions` stores him as `bruce`. Clearing one and not
+the other is why a "reset" board can still come up filled in.
+
 ## Pages
 
 - `/` — this week's games: tap a team to pick, live scores, lock states,
@@ -54,6 +82,7 @@ against its own team color (see `WHITE_LOGO_TEAMS`).
 | ------------------- | ------------------------------------------------- |
 | `SUPABASE_URL`      | Supabase dashboard → Project Settings → API → URL |
 | `SUPABASE_ANON_KEY` | Same page → `anon` `public` key                   |
+| `SUPABASE_SERVICE_ROLE_KEY` | Same page → `service_role` `secret`. Only needed for Start over / the reset script. Server-side only. |
 
 Locally these go in `.env.local` (copy `.env.local.example`). On Vercel,
 add them under Project → Settings → Environment Variables.

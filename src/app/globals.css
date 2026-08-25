@@ -970,6 +970,24 @@ button {
 .save-btn:disabled {
   opacity: 0.6;
 }
+/* Destructive, so it reads as secondary next to Save: outline, not a fill. */
+.clear-btn {
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.clear-btn:hover:not(:disabled) {
+  border-color: #B00020;
+  color: #B00020;
+}
+.clear-btn:disabled {
+  opacity: 0.5;
+}
 .saved-note {
   color: var(--muted);
   font-size: 12px;

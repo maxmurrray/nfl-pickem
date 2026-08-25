@@ -43,6 +43,37 @@ export function isPersistent(): boolean {
   return supabase() !== null;
 }
 
+// A second client, for deletes only.
+//
+// The app runs on the anon key, which has select/insert/update but no delete
+// (supabase/schema.sql). That is deliberate — it means nobody can wipe a
+// season by pointing a script at the public key. Clearing a player therefore
+// needs the service_role key, which lives only in the server environment and
+// is never sent to the browser.
+let serviceCache: SupabaseClient | null | undefined;
+
+function supabaseService(): SupabaseClient | null {
+  if (serviceCache === undefined) {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    serviceCache =
+      url && key
+        ? createClient(url, key, { auth: { persistSession: false } })
+        : null;
+  }
+  return serviceCache;
+}
+
+/** Thrown when the server has no key that is allowed to delete. */
+export class ResetUnavailableError extends Error {
+  constructor() {
+    super(
+      "Reset isn't configured on this server: SUPABASE_SERVICE_ROLE_KEY is missing."
+    );
+    this.name = "ResetUnavailableError";
+  }
+}
+
 // Dev fallback when Supabase isn't configured. This used to be memory-only,
 // which meant a whole conference of predictions vanished on every server
 // restart — and silently, because the save still reported success. It now
@@ -142,4 +173,57 @@ export async function upsertPredictions(
     { onConflict: "season,player,conference,division,team_abbr" }
   );
   if (error) throw new Error(`Supabase write failed: ${error.message}`);
+}
+
+/**
+ * Remove every division prediction one player has saved for a season, so their
+ * board comes back blank.
+ *
+ * Returns the number of rows removed. Verifies afterwards rather than trusting
+ * the status: a delete that RLS refuses still comes back as a cheerful success
+ * with nothing deleted, which would report a clean slate that never happened.
+ */
+export async function deletePredictions(
+  season: number,
+  player: DbPlayer
+): Promise<number> {
+  const db = supabase();
+
+  // Dev fallback (no Supabase configured) — clear the JSON-backed store.
+  if (!db) {
+    let removed = 0;
+    for (const [key, row] of memory) {
+      if (row.season === season && row.player === player) {
+        memory.delete(key);
+        removed++;
+      }
+    }
+    saveToDisk(memory);
+    return removed;
+  }
+
+  const service = supabaseService();
+  if (!service) throw new ResetUnavailableError();
+
+  const { data, error } = await service
+    .from("division_predictions")
+    .delete()
+    .eq("season", season)
+    .eq("player", player)
+    .select("id");
+  if (error) throw new Error(`Supabase delete failed: ${error.message}`);
+
+  const { data: left, error: checkError } = await service
+    .from("division_predictions")
+    .select("id")
+    .eq("season", season)
+    .eq("player", player);
+  if (checkError) throw new Error(`Supabase re-check failed: ${checkError.message}`);
+  if ((left ?? []).length > 0) {
+    throw new Error(
+      `Reset didn't take: ${left!.length} rows still there. Is SUPABASE_SERVICE_ROLE_KEY the service_role key?`
+    );
+  }
+
+  return (data ?? []).length;
 }
