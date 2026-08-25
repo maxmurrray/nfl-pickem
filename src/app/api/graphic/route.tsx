@@ -706,6 +706,16 @@ export async function GET(request: NextRequest) {
         </div>
       </div>
     ),
-    { width: W, height: H, fonts }
+    {
+      width: W,
+      height: H,
+      fonts,
+      // Same reason as the division graphic: this re-renders whenever a pick
+      // changes, so it must not inherit ImageResponse's year-long immutable
+      // cache or the browser keeps serving the pre-edit image.
+      headers: {
+        "cache-control": "no-store, max-age=0, must-revalidate",
+      },
+    }
   );
 }

@@ -527,6 +527,17 @@ export async function GET(request: NextRequest) {
         </div>
       </div>
     ),
-    { width: u(BASE_W), height: u(BASE_H), fonts }
+    {
+      width: u(BASE_W),
+      height: u(BASE_H),
+      fonts,
+      // ImageResponse defaults to `public, immutable, max-age=31536000`, which
+      // assumes the image never changes. This one changes every time someone
+      // edits a prediction: the browser cached the first render for a year and
+      // kept handing back a stale sheet of dashes no matter what was saved.
+      headers: {
+        "cache-control": "no-store, max-age=0, must-revalidate",
+      },
+    }
   );
 }
