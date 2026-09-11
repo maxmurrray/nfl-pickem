@@ -19,8 +19,8 @@ export const dynamic = "force-dynamic";
    =========================================================================== */
 const CONFIG = {
   bg: "#000000",
-  safeInset: 56,
-  gutter: 20,
+  safeInset: 86,
+  gutter: 30,
 
   weightMatchup: 42,
   weightPick: 26,
