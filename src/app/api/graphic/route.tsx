@@ -27,15 +27,19 @@ const CONFIG = {
   // pickable on the site and still counts toward both records.
   hideDays: ["Mon"] as string[],
 
-  safeInset: 86,
-  gutter: 30,
+  // Horizontal and vertical insets are separate on purpose: the cards want a
+  // WIDER side margin (narrower cards) while the header and footer want a
+  // NARROWER top/bottom margin so they sit closer to the edges.
+  safeInsetX: 112,
+  safeInsetY: 50,
+  gutter: 34,
 
   weightMatchup: 42,
   weightPick: 26,
 
   rowGap: 9,
   rowRadius: 11,
-  rowHeightMax: 68,
+  rowHeightMax: 58, // leave slack as air rather than letting rows grow into it
   rowHeightMin: 40,
 
   blendDeg: 100, // matchup colour blend axis (100 = a soft near-vertical lean)
@@ -459,9 +463,10 @@ export async function GET(request: NextRequest) {
   const H = SIZES[sizeKey].h * SCALE;
   const n = games.length;
 
-  const pad = u(c.safeInset);
-  const contentW = W - pad * 2;
-  const contentH = H - pad * 2;
+  const padX = u(c.safeInsetX);
+  const padY = u(c.safeInsetY);
+  const contentW = W - padX * 2;
+  const contentH = H - padY * 2;
 
   const gutter = u(c.gutter);
   const usable = contentW - gutter * 2;
@@ -498,7 +503,13 @@ export async function GET(request: NextRequest) {
     Math.min(u(c.rowHeightMax), Math.floor((availRows - rowGap * (n - 1)) / n))
   );
   const rowsH = rowH * n + rowGap * (n - 1);
-  const headerGap = u(c.headerGapBelow) + Math.max(0, availRows - rowsH);
+  // Split the leftover evenly so the board floats between a header pinned near
+  // the top and a footer pinned near the bottom, instead of all the air
+  // collecting in one gap.
+  const slack = Math.max(0, availRows - rowsH);
+  const slackTop = Math.round(slack / 2);
+  const headerGap = u(c.headerGapBelow) + slackTop;
+  const footerGap = u(c.footerGapAbove) + (slack - slackTop);
 
   const artPx = Math.round(rowH * c.logoBoxRatio);
 
@@ -849,7 +860,10 @@ export async function GET(request: NextRequest) {
           display: "flex",
           flexDirection: "column",
           background: c.bg,
-          padding: pad,
+          paddingTop: padY,
+          paddingBottom: padY,
+          paddingLeft: padX,
+          paddingRight: padX,
           fontFamily: DISPLAY,
         }}
       >
@@ -903,7 +917,7 @@ export async function GET(request: NextRequest) {
             display: "flex",
             flexDirection: "column",
             width: contentW,
-            marginTop: u(c.footerGapAbove),
+            marginTop: footerGap,
           }}
         >
           {footerRow("LAST WEEK", byPlayer((p) => formatWL(records.lastWeek?.[p] ?? null)))}
