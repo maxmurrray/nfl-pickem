@@ -19,6 +19,14 @@ export const dynamic = "force-dynamic";
    =========================================================================== */
 const CONFIG = {
   bg: "#000000",
+
+  // Weekdays (US Eastern) left off the graphic. The board gets posted on a
+  // Friday, by which point nobody has picked Monday night yet — including it
+  // would both show an empty column and, worse, trip the unpicked-game lock
+  // below and refuse to render at all. The game itself is untouched: it stays
+  // pickable on the site and still counts toward both records.
+  hideDays: ["Mon"] as string[],
+
   safeInset: 86,
   gutter: 30,
 
@@ -321,6 +329,14 @@ async function loadLogos(
   return out;
 }
 
+/** Weekday abbreviation (Mon, Tue …) for a kickoff, in US Eastern. */
+function kickoffDay(game: Game): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).format(new Date(game.kickoff));
+}
+
 /* ---------------------------------------------------------------------------
    Records
    --------------------------------------------------------------------------- */
@@ -402,19 +418,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid size" }, { status: 400 });
   }
 
-  const [{ games }, rows] = await Promise.all([
+  const [{ games: allGames }, rows] = await Promise.all([
     getWeekGames(season, week),
     getPicksForWeek(season, week),
   ]);
-  if (games.length === 0) {
+  if (allGames.length === 0) {
     return NextResponse.json({ error: "No games this week" }, { status: 404 });
   }
+
+  // Drop the hidden days from the BOARD only. Records are graded from the full
+  // slate in buildRecords(), so a Monday result still moves both records even
+  // though the game never appears here. Week 18 has no Monday game at all, and
+  // a filter that emptied the slate would be worse than not filtering.
+  const shown = allGames.filter((g) => !CONFIG.hideDays.includes(kickoffDay(g)));
+  const games = shown.length > 0 ? shown : allGames;
 
   const picks: WeekPicks = {};
   for (const row of rows) {
     (picks[row.gameId] ??= {})[row.player] = row.teamId;
   }
 
+  // Only games on the board can leak a pick, so an unpicked Monday night no
+  // longer blocks Friday's graphic.
   const leaks = games.some(
     (game) =>
       game.state === "pre" &&
