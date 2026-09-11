@@ -357,6 +357,72 @@ button {
   color: var(--muted);
 }
 
+/* Preview at roughly phone-feed width (~390px), so what you're looking at is
+   what a follower sees in the timeline rather than a blown-up version. */
+.graphic-preview {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.graphic-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  width: 100%;
+}
+
+.graphic-pair figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 300px;
+  max-width: 390px;
+}
+
+.graphic-pair figcaption {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.graphic-preview img {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.graphic-polish-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.graphic-polish-btn:disabled {
+  opacity: 0.7;
+}
+
+.graphic-polish-btn.secondary {
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.graphic-preview-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 /* ---------- Banners ---------- */
 
 .banner {

@@ -30,16 +30,74 @@ season-long battle.
 
 ## Picks graphic
 
-Once **both** players have picked every game in a week, a
-"Download picks graphic" button appears on that week's page. It renders
-a shareable PNG server-side (`src/app/api/graphic/route.tsx`, via
-`next/og`) in a broadcast-style board: team-color banner rectangles
-with oversized logos, an AT badge on each matchup, and all-time records
-under each name. Sizes: Twitter 4:5 (1600×2000), square (1080×1080),
-and vertical story (1080×1920). The endpoint refuses to render until
-both players are done, since the graphic reveals all picks. A few teams
-use ESPN's white "-dark" logo variant so the logo doesn't vanish
-against its own team color (see `WHITE_LOGO_TEAMS`).
+Each week's page has a **Preview picks graphic** button. It renders a
+shareable PNG server-side (`src/app/api/graphic/route.tsx`, via `next/og`)
+and shows it at roughly phone-feed width first, so you judge the text at the
+size followers actually see it, then download.
+
+The board is three columns — the matchup on the left, then one column per
+player — locked row-for-row. Each matchup card is split on a 12° diagonal
+with the away team's colour on the left and the home team's on the right;
+each pick card is filled with the picked team's colour. Downloads as
+`week-{n}-picks.png`.
+
+**Canvas.** 1080×1350 logical, exported at 2× → **2160×2700**. 4:5 is the
+tallest portrait X shows uncropped in the timeline, so the layout never grows
+past it: the canvas is fixed and *row height* is computed from the game count,
+so a 16-game week and a 13-game bye week both fit without clipping. Extra
+space on a short slate goes between the header and the rows, not at the
+bottom. Square and Story exports are the same layout on a different canvas.
+
+**Team colours** live in `src/lib/teams.ts` — a full 32-team table rather than
+ESPN's own colour field. Four teams deviate from their official primary
+because it's literal black and would vanish against the black background
+(Raiders → silver, Steelers → gold, Jaguars → teal, Browns → orange). Teams
+whose logo is too low-contrast on their own colour are flagged `whiteLogo`
+and use ESPN's white `500-dark` variant. When a matchup pairs two teams with
+near-identical colours (New England and Seattle are both `#002244`) the card
+gets a dark hairline on the divider instead of fudging either brand colour.
+
+**Logo drop shadows** are baked into the PNGs with `sharp` before the renderer
+sees them: Satori silently ignores `filter: drop-shadow`, so the shadow is
+made by blurring the logo's alpha channel, tinting it black and compositing it
+underneath at an offset. That gives a shadow on the silhouette rather than a
+box around the image. ESPN's logos also ship with a wide transparent margin,
+so they're trimmed first and then sized **by height** — most NFL marks are
+wider than they are tall, and fitting them into a square box collapses them to
+half the intended size. Results are cached per (url, size) for the life of the
+server instance. If `sharp` is unavailable the logos still render, just flat.
+
+**Generated backdrop (optional).** The graphic is split into *art* and *data*.
+Artwork behind the board can be generated with Nano Banana Pro (Gemini 3 Pro
+Image) and dropped at `public/graphic/backdrop.png` — or `backdrop-x.png`,
+`-square.png`, `-story.png` to vary by canvas. The renderer crops it to fill,
+lays a scrim over it (`CONFIG.backdropScrim`) and draws the board on top. With
+no file there, the board renders on flat black exactly as before.
+
+The rows, logos, names and picks are **never** generated — they are always
+composited from Supabase and ESPN. That boundary is the whole point: an image
+model asked to redraw a 16-row board will approximate trademarked logos and
+will sometimes put a player on the wrong team, and a picks graphic that is
+subtly wrong is worse than a plain one. Art gets generated; facts get derived.
+
+Two ways to make one:
+
+- **No API key.** Generate it in the Higgsfield web UI (or anywhere else),
+  download the PNG, save it to `public/graphic/`. Higgsfield publishes no
+  developer API, so this is usually the path.
+- **Scripted.** `node scripts/generate-backdrop.mjs --reference ref.png --size x`
+  calls Gemini's `gemini-3-pro-image` directly at 4K with your reference image
+  steering the style. Needs `GEMINI_API_KEY` in `.env.local`. Add `--dry-run`
+  to see the request without spending anything.
+
+Either way it runs **once** and the PNG is committed. The weekly export makes
+no API call, costs nothing per week, and can't fail on a Sunday morning.
+
+**Lock rule.** The endpoint returns 409 while any game that *hasn't kicked
+off* is missing a pick, since rendering would leak one player's pick to the
+other. Once a game is locked both picks are public anyway, so a past week
+renders fine even if somebody never picked — those cells come out as empty
+dark cards.
 
 ## Starting over
 

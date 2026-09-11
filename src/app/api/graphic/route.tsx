@@ -1,64 +1,81 @@
 import { ImageResponse } from "next/og";
 import { NextRequest, NextResponse } from "next/server";
+import { loadBackdrop } from "@/lib/backdrop";
 import { getSeasonContext, getWeekGames } from "@/lib/espn";
-import {
-  addRecords,
-  emptyRecords,
-  formatRecord,
-  gradeWeek,
-} from "@/lib/grading";
+import { emptyRecords, gradeWeek, type WinLoss } from "@/lib/grading";
 import { getPicksForSeason, getPicksForWeek } from "@/lib/picks-store";
+import { darken, needsDivider, teamCard, teamLogo } from "@/lib/teams";
 import type { Game, GameSide, PlayerId, WeekPicks } from "@/lib/types";
 import { PLAYER_IDS, PLAYER_NAMES } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 /* ===========================================================================
-   GRAPHIC CONFIG — tweak everything here. (Lives at the top of
-   src/app/api/graphic/route.tsx.)
+   GRAPHIC CONFIG — every number here is in LOGICAL px against a 1080-wide
+   canvas. The renderer multiplies by `scale` (2) for the exported file, so
+   1080×1350 logical exports as 2160×2700.
    =========================================================================== */
 const CONFIG = {
-  // "A" = two columns of games side-by-side (preferred, ~4:5).
-  // "B" = single column grouped by day labels (THU / SUN / MON).
-  columnMode: "A" as "A" | "B",
+  bg: "#000000",
+  safeInset: 56,
+  gutter: 20,
 
-  // One accent for the whole graphic — NOT team colors. Try electric blue "#38bdf8".
-  accent: "#e5b84b", // gold
+  weightMatchup: 42,
+  weightPick: 26,
 
-  bgTop: "#0a0c10", // subtle vertical gradient, top …
-  bgBottom: "#12151c", // … to bottom
-  card: "#161a21", // neutral card surface (a hair lighter than the bg)
-  chip: "#1d222b", // pick-chip surface (a hair lighter than the card)
-  cardBorder: "rgba(255,255,255,0.07)", // hairline
+  rowGap: 9,
+  rowRadius: 11,
+  rowHeightMax: 68,
+  rowHeightMin: 40,
 
-  stripeWidth: 4, // px team-color edge stripe on each pick chip (@1600w, scales)
-  padScale: 0.034, // outer padding as a fraction of width (~54px @ 1600w)
+  blendDeg: 100, // matchup colour blend axis (100 = a soft near-vertical lean)
+  blendSoft: 8, // half-width of the blend, as a % of card width
+  logoBoxRatio: 0.80,
+  atSize: 0.30, // "@" glyph size as a fraction of row height
 
-  textPrimary: "rgba(255,255,255,0.92)", // never pure white
-  textSecondary: "rgba(255,255,255,0.55)",
-  textMuted: "rgba(255,255,255,0.38)",
+  // Glass finish, matching the reference: bright rim, hard specular break
+  // just past the middle, heavy shadow underneath so cards sit off the black.
+  rimLight: 0.42,
+  rimDark: 0.55,
+  cardShadow: "0 6px 14px rgba(0,0,0,0.78)",
+  emptyCard: "#171a1f",
+
+  // Column rails — the thin bracket each stack of cards sits inside.
+  railPad: 9,
+  railRadius: 16,
+  railBorder: 0.16,
+  railFill: 0.05,
+
+  headerSize: 62,
+  headerGapBelow: 22,
+  footerSize: 46,
+  footerRowH: 58,
+  footerGapAbove: 26,
+
+  // Headers, footer labels and records are plain white. The black edge behind
+  // them is invisible against the black background and only earns its keep if
+  // a generated backdrop is installed.
+  textFill: "#FFFFFF",
+  outline: 3,
+  outlineColor: "#000000",
+
+  backdropScrim: 0.45,
+  text: "#FFFFFF",
 };
 /* ========================================================================= */
 
-// Broadcast-style pairing: Barlow Condensed (display / abbreviations) + Barlow
-// (clean sans). Static TTFs from the google/fonts repo so Satori can embed them
-// (it can't use woff2 / variable fonts). Fetched once, cached, and passed to the
-// renderer so the export never falls back to a system font mid-render.
-const FONT_FILES = {
-  cond700:
-    "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/barlowcondensed/BarlowCondensed-Bold.ttf",
-  sans400:
-    "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/barlow/Barlow-Regular.ttf",
-  sans500:
-    "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/barlow/Barlow-Medium.ttf",
-};
-const DISPLAY = "Barlow Condensed";
-const SANS = "Barlow";
+// Heavy condensed display face, matching the broadcast look of the reference.
+// Static TTF from the google/fonts repo — Satori can't use woff2 or variable
+// fonts. Fetched once per server instance and passed to the renderer so the
+// export never falls back to a system font mid-render.
+const FONT_URL =
+  "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/anton/Anton-Regular.ttf";
+const DISPLAY = "Anton";
 
 type FontDef = {
   name: string;
   data: ArrayBuffer;
-  weight: 400 | 500 | 700;
+  weight: 400;
   style: "normal";
 };
 let fontCache: FontDef[] | null | undefined;
@@ -66,55 +83,63 @@ let fontCache: FontDef[] | null | undefined;
 async function loadFonts(): Promise<FontDef[] | undefined> {
   if (fontCache !== undefined) return fontCache ?? undefined;
   try {
-    const grab = async (url: string) => {
-      const res = await fetch(url, { next: { revalidate: 604800 } });
-      if (!res.ok) throw new Error(`font ${res.status}`);
-      return res.arrayBuffer();
-    };
-    const [c7, s4, s5] = await Promise.all([
-      grab(FONT_FILES.cond700),
-      grab(FONT_FILES.sans400),
-      grab(FONT_FILES.sans500),
-    ]);
+    const res = await fetch(FONT_URL, { next: { revalidate: 604800 } });
+    if (!res.ok) throw new Error(`font ${res.status}`);
     fontCache = [
-      { name: DISPLAY, data: c7, weight: 700, style: "normal" },
-      { name: SANS, data: s4, weight: 400, style: "normal" },
-      { name: SANS, data: s5, weight: 500, style: "normal" },
+      {
+        name: DISPLAY,
+        data: await res.arrayBuffer(),
+        weight: 400,
+        style: "normal",
+      },
     ];
   } catch {
-    // Fonts unavailable → render with next/og's built-in default so the export
-    // still succeeds (just without the condensed display face).
-    fontCache = null;
+    fontCache = null; // render with next/og's default rather than failing
   }
   return fontCache ?? undefined;
 }
 
+// 4:5 is the tallest portrait X shows uncropped in the timeline. `x` is the
+// canonical export; the other two exist for Instagram and are the same layout
+// on a different canvas.
 const SIZES = {
-  twitter: { width: 1600, height: 2000 },
-  square: { width: 1080, height: 1080 },
-  story: { width: 1080, height: 1920 },
+  x: { w: 1080, h: 1350 },
+  square: { w: 1080, h: 1080 },
+  story: { w: 1080, h: 1920 },
 } as const;
+const SIZE_ALIASES: Record<string, keyof typeof SIZES> = { twitter: "x" };
+const SCALE = 2;
 
 type SizeKey = keyof typeof SIZES;
 
-function isSizeKey(value: string | null): value is SizeKey {
-  return value !== null && value in SIZES;
+function resolveSize(value: string | null): SizeKey | null {
+  if (!value) return null;
+  const key = SIZE_ALIASES[value] ?? value;
+  return key in SIZES ? (key as SizeKey) : null;
 }
 
-// Teams whose primary logo is low-contrast on a dark card; ESPN's "-dark"
-// variants are the white-on-transparent versions.
-const WHITE_LOGO_TEAMS = new Set(["NYG", "NYJ", "LAR"]);
-
-function logoUrl(side: GameSide): string | null {
-  if (!side.logo) return null;
-  return WHITE_LOGO_TEAMS.has(side.abbreviation)
-    ? side.logo.replace("/nfl/500/", "/nfl/500-dark/")
-    : side.logo;
-}
-
+/* ---------------------------------------------------------------------------
+   Logos. Satori ignores `filter: drop-shadow`, so the shadow is baked into the
+   PNG with sharp before it ever reaches the renderer: blur the logo's alpha
+   channel, tint it black, composite it underneath at an offset. That gives a
+   shadow on the silhouette rather than a box shadow around the image.
+   Baked at final display size so the blur radius is physically correct, and
+   cached per (url, size) for the life of the server instance.
+   --------------------------------------------------------------------------- */
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
-async function fetchLogo(url: string): Promise<string> {
+let sharpModule: any;
+async function getSharp(): Promise<any | null> {
+  if (sharpModule !== undefined) return sharpModule;
+  try {
+    sharpModule = (await import("sharp")).default;
+  } catch {
+    sharpModule = null;
+  }
+  return sharpModule;
+}
+
+async function fetchLogoBuffer(url: string): Promise<Buffer | null> {
   for (const init of [
     { next: { revalidate: 86400 } },
     { cache: "no-store" },
@@ -124,95 +149,239 @@ async function fetchLogo(url: string): Promise<string> {
       if (!res.ok) continue;
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.length < 100 || !buf.subarray(0, 4).equals(PNG_MAGIC)) continue;
-      return `data:image/png;base64,${buf.toString("base64")}`;
+      return buf;
     } catch {
       // fall through to the uncached retry
     }
   }
-  return "";
+  return null;
 }
 
-async function loadLogos(games: Game[]): Promise<Map<string, string>> {
+/** Result of baking: the data URI and the exact box it should render at. */
+export interface BakedLogo {
+  uri: string;
+  w: number;
+  h: number;
+}
+
+/**
+ * Size by HEIGHT, not into a square. Most NFL marks are wider than they are
+ * tall, so fitting them into a square box collapses their height and they read
+ * as tiny. Capping height at `artPx` and letting width run (to a sane limit)
+ * gives every row the same visual weight, which is what the reference does.
+ */
+async function bakeLogo(
+  source: Buffer,
+  artPx: number
+): Promise<BakedLogo | null> {
+  const maxW = Math.round(artPx * 2.2);
+  const sharp = await getSharp();
+  const transparent = { r: 0, g: 0, b: 0, alpha: 0 };
+
+  // Spec shadows at logical scale: 0 4px 8px rgba(0,0,0,.45)
+  //                            and 0 1px 2px rgba(0,0,0,.35)
+  const shadows = [
+    { dy: 4 * SCALE, blur: 8 * SCALE, alpha: 0.45 },
+    { dy: 1 * SCALE, blur: 2 * SCALE, alpha: 0.35 },
+  ];
+
+  // A CSS blur radius r is about sigma r/2, and a gaussian is spent by 3 sigma.
+  // The padding has to cover that fall-off PLUS the offset, otherwise the blur
+  // runs into the edge of the bitmap and stops dead — which is what put a faint
+  // rectangle around every logo.
+  const maxSigma = Math.max(...shadows.map((s) => s.blur / 2));
+  const maxDy = Math.max(...shadows.map((s) => s.dy));
+  const pad = Math.ceil(maxSigma * 3 + maxDy + 2);
+
+  if (!sharp) {
+    return {
+      uri: `data:image/png;base64,${source.toString("base64")}`,
+      w: artPx,
+      h: artPx,
+    };
+  }
+
+  try {
+    // ESPN's 500px logos carry a wide transparent margin, so resizing the raw
+    // file leaves the artwork far smaller than the box. Trim that margin first
+    // so every logo fills its box to the same visual weight, then size by
+    // HEIGHT — most NFL marks are wider than tall, and fitting them into a
+    // square collapses them to half the intended size.
+    let trimmed = source;
+    try {
+      trimmed = await sharp(source).trim().png().toBuffer();
+    } catch {
+      // a logo that trims to nothing — keep the original
+    }
+    const art = await sharp(trimmed)
+      .resize({ width: maxW, height: artPx, fit: "inside", withoutEnlargement: false })
+      .png()
+      .toBuffer();
+    const meta = await sharp(art).metadata();
+    const aw = meta.width ?? artPx;
+    const ah = meta.height ?? artPx;
+    const cw = aw + pad * 2;
+    const ch = ah + pad * 2;
+
+    const layers: { input: Buffer; top: number; left: number }[] = [];
+    for (const { dy, blur, alpha } of shadows) {
+      // Bake the drop offset into the padding so the blurred mask is already
+      // the full canvas size and composites at the origin — no second shift
+      // that could clip it.
+      const offsetArt = await sharp(art)
+        .extend({
+          top: pad + dy,
+          bottom: pad - dy,
+          left: pad,
+          right: pad,
+          background: transparent,
+        })
+        .png()
+        .toBuffer();
+      const mask = await sharp(offsetArt)
+        .extractChannel("alpha")
+        .blur(Math.max(0.3, blur / 2))
+        .linear(alpha, 0)
+        .toBuffer();
+      const layer = await sharp({
+        create: { width: cw, height: ch, channels: 3, background: "#000" },
+      })
+        .joinChannel(mask)
+        .png()
+        .toBuffer();
+      layers.push({ input: layer, top: 0, left: 0 });
+    }
+    layers.push({ input: art, top: pad, left: pad });
+
+    const out = await sharp({
+      create: { width: cw, height: ch, channels: 4, background: transparent },
+    })
+      .composite(layers)
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    return {
+      uri: `data:image/png;base64,${out.toString("base64")}`,
+      w: cw,
+      h: ch,
+    };
+  } catch {
+    return {
+      uri: `data:image/png;base64,${source.toString("base64")}`,
+      w: artPx,
+      h: artPx,
+    };
+  }
+}
+
+const bakeCache = new Map<string, BakedLogo | null>();
+
+async function loadLogos(
+  games: Game[],
+  artPx: number
+): Promise<Map<string, BakedLogo>> {
   const urls = new Set<string>();
   for (const game of games) {
-    const away = logoUrl(game.away);
-    const home = logoUrl(game.home);
-    if (away) urls.add(away);
-    if (home) urls.add(home);
+    for (const side of [game.away, game.home]) {
+      const url = teamLogo(side);
+      if (url) urls.add(url);
+    }
   }
-  const entries = await Promise.all(
-    [...urls].map(async (url): Promise<[string, string]> => [
-      url,
-      await fetchLogo(url),
-    ])
+  const out = new Map<string, BakedLogo>();
+  await Promise.all(
+    [...urls].map(async (url) => {
+      const key = `${url}@${artPx}`;
+      if (!bakeCache.has(key)) {
+        const source = await fetchLogoBuffer(url);
+        bakeCache.set(key, source ? await bakeLogo(source, artPx) : null);
+      }
+      const baked = bakeCache.get(key);
+      if (baked) out.set(url, baked);
+    })
   );
-  return new Map(entries.filter(([, uri]) => uri !== ""));
+  return out;
 }
 
-/** Season-to-date records for both players (completed games only). */
-async function seasonRecords(season: number) {
+/* ---------------------------------------------------------------------------
+   Records
+   --------------------------------------------------------------------------- */
+
+type Records = Record<PlayerId, WinLoss>;
+
+function emptyWL(): Records {
+  return emptyRecords();
+}
+
+function formatWL(record: WinLoss | null): string {
+  return record ? `${record.wins}-${record.losses}` : "—";
+}
+
+interface RecordSet {
+  lastWeek: Records | null;
+  season: Records;
+}
+
+/** Season totals plus the previous week's record, graded on the fly. */
+async function buildRecords(
+  season: number,
+  week: number
+): Promise<RecordSet> {
   const context = await getSeasonContext();
-  const weekCount = season === context.season ? context.currentWeek : 18;
+  const weekCount =
+    season === context.season ? Math.max(context.currentWeek, week) : 18;
   const weekNumbers = Array.from({ length: weekCount }, (_, i) => i + 1);
+
   const [weeks, rows] = await Promise.all([
     Promise.all(weekNumbers.map((w) => getWeekGames(season, w))),
     getPicksForSeason(season),
   ]);
+
   const picksByWeek = new Map<number, WeekPicks>();
   for (const row of rows) {
     const weekPicks = picksByWeek.get(row.week) ?? {};
     (weekPicks[row.gameId] ??= {})[row.player] = row.teamId;
     picksByWeek.set(row.week, weekPicks);
   }
-  const totals = emptyRecords();
-  for (const weekData of weeks) {
-    addRecords(
-      totals,
-      gradeWeek(weekData.games, picksByWeek.get(weekData.week) ?? {})
-    );
-  }
-  return totals;
-}
 
-/** Day label (THU / SUN / MON …) in US Eastern — used only in column mode B. */
-function groupByDay(games: Game[]): { label: string; games: Game[] }[] {
-  const order: string[] = [];
-  const map = new Map<string, Game[]>();
-  for (const g of games) {
-    const label = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      weekday: "short",
-    })
-      .format(new Date(g.kickoff))
-      .toUpperCase();
-    if (!map.has(label)) {
-      map.set(label, []);
-      order.push(label);
+  const seasonTotals = emptyWL();
+  let lastWeek: Records | null = null;
+
+  for (const weekData of weeks) {
+    const graded = gradeWeek(
+      weekData.games,
+      picksByWeek.get(weekData.week) ?? {}
+    );
+    for (const player of PLAYER_IDS) {
+      seasonTotals[player].wins += graded[player].wins;
+      seasonTotals[player].losses += graded[player].losses;
     }
-    map.get(label)!.push(g);
+    if (weekData.week === week - 1) lastWeek = graded;
   }
-  return order.map((label) => ({ label, games: map.get(label)! }));
+
+  return { lastWeek, season: seasonTotals };
 }
 
 /**
- * GET /api/graphic?season=2026&week=1&size=twitter
+ * GET /api/graphic?season=2026&week=1&size=x
  *
- * PNG of both players' picks for the week. Only available once BOTH players
- * have picked every game (server-enforced), since it reveals all picks.
+ * PNG of both players' picks for the week, laid out as a broadcast-style
+ * three-column board. Refuses to render while any game that HASN'T kicked off
+ * is missing a pick, since that would leak one player's pick to the other;
+ * once a game is locked both picks are public anyway, and a game nobody picked
+ * renders as an empty slot.
  */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const season = Number(params.get("season"));
   const week = Number(params.get("week"));
-  const sizeParam = params.get("size") ?? "twitter";
+  const sizeKey = resolveSize(params.get("size") ?? "x");
 
   if (!Number.isInteger(season) || !Number.isInteger(week) || week < 1) {
     return NextResponse.json({ error: "Invalid season/week" }, { status: 400 });
   }
-  if (!isSizeKey(sizeParam)) {
+  if (!sizeKey) {
     return NextResponse.json({ error: "Invalid size" }, { status: 400 });
   }
-  const size = SIZES[sizeParam];
 
   const [{ games }, rows] = await Promise.all([
     getWeekGames(season, week),
@@ -227,482 +396,475 @@ export async function GET(request: NextRequest) {
     (picks[row.gameId] ??= {})[row.player] = row.teamId;
   }
 
-  const incomplete = games.some((game) =>
-    PLAYER_IDS.some((player) => !picks[game.id]?.[player])
+  const leaks = games.some(
+    (game) =>
+      game.state === "pre" &&
+      PLAYER_IDS.some((player) => !picks[game.id]?.[player])
   );
-  if (incomplete) {
+  if (leaks) {
     return NextResponse.json(
-      { error: "Both players must pick every game before the graphic unlocks." },
+      { error: "Both players must pick every upcoming game before the graphic unlocks." },
       { status: 409 }
     );
   }
 
-  const [logos, records, fonts] = await Promise.all([
-    loadLogos(games),
-    seasonRecords(season),
-    loadFonts(),
-  ]);
+  // ----- layout metrics, all derived from the canvas and the game count -----
+  const u = (n: number) => Math.round(n * SCALE);
+  const c = CONFIG;
+  const W = SIZES[sizeKey].w * SCALE;
+  const H = SIZES[sizeKey].h * SCALE;
+  const n = games.length;
 
-  const pickedSide = (game: Game, player: PlayerId): GameSide => {
+  const pad = u(c.safeInset);
+  const contentW = W - pad * 2;
+  const contentH = H - pad * 2;
+
+  const gutter = u(c.gutter);
+  const usable = contentW - gutter * 2;
+  const totalWeight = c.weightMatchup + c.weightPick * 2;
+  const pickW = Math.floor((usable * c.weightPick) / totalWeight);
+  const matchupW = usable - pickW * 2;
+
+  const headerFont = u(c.headerSize);
+  const headerH = Math.round(headerFont * 1.12);
+  const footerFont = u(c.footerSize);
+  const footerRowH = u(c.footerRowH);
+  const footerH = footerRowH * 2;
+
+  const rowGap = u(c.rowGap);
+
+  const radius = u(c.rowRadius);
+  const railPad = u(c.railPad);
+  const railEdge = Math.max(1, u(1));
+  const railChrome = (railPad + railEdge) * 2; // rail padding on both axes
+
+  // Cards sit inside the rails, so their width is the column minus the rail.
+  const matchupCardW = matchupW - railChrome;
+  const pickCardW = pickW - railChrome;
+
+  const availRows =
+    contentH -
+    headerH -
+    u(c.headerGapBelow) -
+    u(c.footerGapAbove) -
+    footerH -
+    railChrome;
+  const rowH = Math.max(
+    u(c.rowHeightMin),
+    Math.min(u(c.rowHeightMax), Math.floor((availRows - rowGap * (n - 1)) / n))
+  );
+  const rowsH = rowH * n + rowGap * (n - 1);
+  const headerGap = u(c.headerGapBelow) + Math.max(0, availRows - rowsH);
+
+  const artPx = Math.round(rowH * c.logoBoxRatio);
+
+  const [logos, fonts, backdrop] = await Promise.all([
+    loadLogos(games, artPx),
+    loadFonts(),
+    loadBackdrop(sizeKey, W, H).catch(() => null),
+  ]);
+  const records = await buildRecords(season, week);
+
+  const pickedSide = (game: Game, player: PlayerId): GameSide | null => {
     const teamId = picks[game.id]?.[player];
-    return teamId === game.home.teamId ? game.home : game.away;
+    if (!teamId) return null;
+    if (teamId === game.home.teamId) return game.home;
+    if (teamId === game.away.teamId) return game.away;
+    return null;
   };
 
-  const c = CONFIG;
-  const leader =
-    records.dad.wins > records.rich.wins
-      ? "dad"
-      : records.rich.wins > records.dad.wins
-        ? "rich"
-        : null;
+  /* ---------------- render helpers ---------------- */
 
-  // ----- layout metrics (all derived from canvas + game count) -----
-  const { width: W, height: H } = size;
-  const n = games.length;
-  const s = W / 1600; // scale factor vs. the 1600-wide reference
-  const pad = Math.round(W * c.padScale);
-  const contentW = W - pad * 2;
+  const logoImg = (side: GameSide) => {
+    const url = teamLogo(side);
+    const baked = url ? logos.get(url) : undefined;
+    if (!baked) return null;
+    return <img src={baked.uri} width={baked.w} height={baked.h} alt="" />;
+  };
 
-  const titleFont = Math.round(82 * s);
-  const seasonFont = Math.round(22 * s);
-  const badgeName = Math.round(30 * s);
-  const badgeRec = Math.round(26 * s);
+  // One glass finish reused by every card: bright across the top, a hard
+  // specular break just past the middle, a gentle lift to the bottom. It's an
+  // rgba overlay rather than baked-in colours so the same treatment works over
+  // a solid pick colour and over a two-team blend alike.
+  const GLOSS =
+    "linear-gradient(180deg, rgba(255,255,255,0.36) 0%, rgba(255,255,255,0.13) 45%, rgba(0,0,0,0.34) 51%, rgba(0,0,0,0.02) 100%)";
 
-  const headerH = Math.round(H * 0.1);
-  const ruleGap = Math.round(H * 0.012);
-  const ruleH = Math.max(4, Math.round(6 * s));
-  const bodyGap = Math.round(H * 0.02);
-  const footerGap = Math.round(H * 0.014);
-  const footerH = Math.round(H * 0.032);
-  const bodyH =
-    H - pad * 2 - headerH - ruleGap - ruleH - bodyGap - footerGap - footerH;
-
-  const cols = c.columnMode === "A" ? 2 : 1;
-  const colGap = cols === 2 ? Math.round(contentW * 0.028) : 0;
-  const colW = Math.round((contentW - colGap * (cols - 1)) / cols);
-  const rowsPerCol = cols === 2 ? Math.ceil(n / 2) : n;
-  const cardGap = Math.max(8, Math.round(bodyH * 0.013));
-  const dayGroups = groupByDay(games);
-  const labelH = Math.round(bodyH * 0.032);
-
-  const cardH =
-    cols === 2
-      ? Math.floor((bodyH - cardGap * (rowsPerCol - 1)) / rowsPerCol)
-      : Math.floor(
-          (bodyH -
-            cardGap * (n - 1) -
-            dayGroups.length * (labelH + cardGap)) /
-            n
-        );
-
-  const stripeW = Math.max(3, Math.round(c.stripeWidth * s));
-  const miniLogo = Math.round(cardH * 0.36);
-  const miniAbbr = Math.round(cardH * 0.21);
-  const atFont = Math.round(cardH * 0.18);
-  const chipH = Math.round(cardH * 0.44);
-  const chipLogo = Math.round(chipH * 0.6);
-  const chipAbbr = Math.round(chipH * 0.4);
-  const ownerFont = Math.round(cardH * 0.15);
-  const cardRadius = Math.round(12 * s);
-  const chipRadius = Math.round(8 * s);
-  const cardPadX = Math.round(cardH * 0.16);
-
-  const genDate = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date());
-
-  // ---------- render helpers ----------
-  const teamMini = (side: GameSide) => {
-    const url = logoUrl(side);
-    const uri = url ? logos.get(url) : undefined;
+  /**
+   * Text with a hard black edge. Satori supports background-clip:text for the
+   * metallic fill but silently drops textShadow on top of it, so the edge is
+   * eight offset copies of the same word stacked behind the fill.
+   */
+  const outlined = (
+    key: string,
+    text: string,
+    size: number,
+    fill: string,
+    edge: number,
+    gradient = true
+  ) => {
+    const o = Math.max(1, edge);
+    const ring = [
+      [-o, 0], [o, 0], [0, -o], [0, o],
+      [-o, -o], [o, -o], [-o, o], [o, o],
+    ];
+    const layer = (style: React.CSSProperties, k: string) => (
+      <div
+        key={k}
+        style={{
+          position: "absolute",
+          top: 0, left: 0, right: 0, bottom: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          ...style,
+        }}
+      >
+        <span style={{ fontFamily: DISPLAY, fontSize: size, lineHeight: 1, ...(style as any).__text }}>
+          {text}
+        </span>
+      </div>
+    );
     return (
-      <div style={{ display: "flex", alignItems: "center" }}>
-        {uri ? (
-          <img src={uri} width={miniLogo} height={miniLogo} />
-        ) : (
-          <div style={{ width: miniLogo, height: miniLogo, display: "flex" }} />
-        )}
-        <span
+      <div
+        key={key}
+        style={{
+          position: "relative",
+          display: "flex",
+          width: "100%",
+          height: Math.round(size * 1.3),
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {ring.map(([dx, dy], i) => (
+          <div
+            key={`${key}-o${i}`}
+            style={{
+              position: "absolute",
+              top: 0, left: 0, right: 0, bottom: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transform: `translate(${dx}px, ${dy}px)`,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: DISPLAY,
+                fontSize: size,
+                lineHeight: 1,
+                color: c.outlineColor,
+              }}
+            >
+              {text}
+            </span>
+          </div>
+        ))}
+        <div
           style={{
-            fontFamily: DISPLAY,
-            fontWeight: 700,
-            fontSize: miniAbbr,
-            color: c.textPrimary,
-            marginLeft: Math.round(7 * s),
-            letterSpacing: 0.5,
+            position: "absolute",
+            top: 0, left: 0, right: 0, bottom: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          {side.abbreviation}
-        </span>
+          <span
+            style={
+              (gradient
+                ? {
+                    fontFamily: DISPLAY,
+                    fontSize: size,
+                    lineHeight: 1,
+                    backgroundImage: fill,
+                    backgroundClip: "text",
+                    WebkitBackgroundClip: "text",
+                    color: "transparent",
+                  }
+                : {
+                    fontFamily: DISPLAY,
+                    fontSize: size,
+                    lineHeight: 1,
+                    color: fill,
+                  }) as React.CSSProperties
+            }
+          >
+            {text}
+          </span>
+        </div>
       </div>
     );
   };
 
-  const pickChip = (side: GameSide) => {
-    const url = logoUrl(side);
-    const uri = url ? logos.get(url) : undefined;
+  /** Rim lines that sell the glass edge: light on top, dark underneath. */
+  const rim = (key: string) => [
+    <div
+      key={`${key}-rt`}
+      style={{
+        position: "absolute", top: 0, left: 0, right: 0,
+        height: Math.max(1, u(1.5)),
+        background: `rgba(255,255,255,${c.rimLight})`,
+        display: "flex",
+      }}
+    />,
+    <div
+      key={`${key}-rb`}
+      style={{
+        position: "absolute", bottom: 0, left: 0, right: 0,
+        height: Math.max(1, u(1)),
+        background: `rgba(0,0,0,${c.rimDark})`,
+        display: "flex",
+      }}
+    />,
+  ];
+
+  /**
+   * Cards are built with a FLAT child list on purpose. Satori drops the
+   * absolute positioning of anything wrapped in a React Fragment, which
+   * silently pushes the logos into normal flow and off the card.
+   */
+  const matchupCard = (game: Game) => {
+    const away = teamCard(game.away);
+    const home = teamCard(game.home);
+    const half = Math.round(matchupCardW / 2);
+    const soft = c.blendSoft;
+    // Two teams sharing a brand colour would read as one block, so those rows
+    // get a dark seam instead of a soft blend.
+    // Near-identical colours (New England and Seattle are the same navy) get a
+    // soft crease rather than a hard rule — each side darkening into the middle
+    // reads as a fold between two panels instead of a line drawn over the card.
+    const image = needsDivider(away, home)
+      ? `linear-gradient(${c.blendDeg}deg, ${away} 0%, ${away} 41%, ${darken(away, 0.45)} 49.4%, ${darken(home, 0.45)} 50.6%, ${home} 59%, ${home} 100%)`
+      : `linear-gradient(${c.blendDeg}deg, ${away} 0%, ${away} ${50 - soft}%, ${home} ${50 + soft}%, ${home} 100%)`;
+
     return (
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
           position: "relative",
+          display: "flex",
+          width: matchupCardW,
+          height: rowH,
+          borderRadius: radius,
           overflow: "hidden",
-          height: chipH,
-          background: c.chip,
-          border: `1px solid ${c.cardBorder}`,
-          borderRadius: chipRadius,
-          paddingLeft: stripeW + Math.round(8 * s),
-          paddingRight: Math.round(10 * s),
+          boxShadow: c.cardShadow,
+          backgroundImage: image,
         }}
       >
         <div
           style={{
             position: "absolute",
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: stripeW,
-            background: side.color ? `#${side.color}` : "#4b5563",
+            top: 0, left: 0, right: 0, bottom: 0,
             display: "flex",
+            backgroundImage: GLOSS,
           }}
         />
-        {uri && <img src={uri} width={chipLogo} height={chipLogo} />}
-        <span
+        {rim(`m-${game.id}`)}
+        {[game.away, game.home].map((side, i) => (
+          <div
+            key={`${game.id}-${i}`}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: i === 0 ? 0 : matchupCardW - half,
+              width: half,
+              height: rowH,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {logoImg(side)}
+          </div>
+        ))}
+        <div
           style={{
-            fontFamily: DISPLAY,
-            fontWeight: 700,
-            fontSize: chipAbbr,
-            color: c.textPrimary,
-            marginLeft: Math.round(7 * s),
-            letterSpacing: 0.5,
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: matchupCardW,
+            height: rowH,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          {side.abbreviation}
-        </span>
+          {outlined(
+            `at-${game.id}`,
+            "@",
+            Math.round(rowH * c.atSize),
+            "#ffffff",
+            Math.max(1, u(1.5)),
+            false
+          )}
+        </div>
       </div>
     );
   };
 
-  const pickGroup = (game: Game, player: PlayerId, first: boolean) => (
-    <div
-      key={player}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        marginLeft: first ? Math.round(14 * s) : Math.round(11 * s),
-      }}
-    >
-      <span
-        style={{
-          fontFamily: SANS,
-          fontWeight: 500,
-          fontSize: ownerFont,
-          color: c.textMuted,
-          marginRight: Math.round(6 * s),
-        }}
-      >
-        {PLAYER_NAMES[player][0].toUpperCase()}
-      </span>
-      {pickChip(pickedSide(game, player))}
-    </div>
-  );
-
-  const gameCard = (game: Game, marginTop: number) => (
-    <div
-      key={game.id}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        height: cardH,
-        marginTop,
-        background: c.card,
-        border: `1px solid ${c.cardBorder}`,
-        borderRadius: cardRadius,
-        paddingLeft: cardPadX,
-        paddingRight: cardPadX,
-      }}
-    >
+  const pickCard = (game: Game, player: PlayerId) => {
+    const side = pickedSide(game, player);
+    return (
       <div
         style={{
+          position: "relative",
           display: "flex",
+          width: pickCardW,
+          height: rowH,
+          borderRadius: radius,
+          overflow: "hidden",
           alignItems: "center",
-          flex: "1 1 0",
-          minWidth: 0,
+          justifyContent: "center",
+          boxShadow: c.cardShadow,
+          background: side ? teamCard(side) : c.emptyCard,
         }}
       >
-        {teamMini(game.away)}
-        <span
-          style={{
-            fontFamily: SANS,
-            fontWeight: 400,
-            fontSize: atFont,
-            color: c.textMuted,
-            marginLeft: Math.round(8 * s),
-            marginRight: Math.round(8 * s),
-          }}
-        >
-          @
-        </span>
-        {teamMini(game.home)}
-      </div>
-      {pickGroup(game, "dad", true)}
-      {pickGroup(game, "rich", false)}
-    </div>
-  );
-
-  // Body — mode A: two columns; mode B: one column with day labels.
-  let body: React.ReactNode;
-  if (cols === 2) {
-    const columns = [
-      games.slice(0, rowsPerCol),
-      games.slice(rowsPerCol),
-    ];
-    body = (
-      <div style={{ display: "flex", height: bodyH, width: contentW }}>
-        {columns.map((colGames, ci) => (
-          <div
-            key={ci}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              width: colW,
-              marginLeft: ci === 0 ? 0 : colGap,
-            }}
-          >
-            {colGames.map((game, ri) => gameCard(game, ri === 0 ? 0 : cardGap))}
-          </div>
-        ))}
-      </div>
-    );
-  } else {
-    let firstBlock = true;
-    body = (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          height: bodyH,
-          width: contentW,
-        }}
-      >
-        {dayGroups.map((group) => {
-          const block = (
-            <div key={group.label} style={{ display: "flex", flexDirection: "column" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  height: labelH,
-                  marginTop: firstBlock ? 0 : cardGap,
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: DISPLAY,
-                    fontWeight: 700,
-                    fontSize: Math.round(labelH * 0.62),
-                    letterSpacing: 3,
-                    color: c.textSecondary,
-                  }}
-                >
-                  {group.label}
-                </span>
-                <div
-                  style={{
-                    flex: "1 1 0",
-                    height: 1,
-                    background: "rgba(255,255,255,0.08)",
-                    marginLeft: Math.round(12 * s),
-                    display: "flex",
-                  }}
-                />
-              </div>
-              {group.games.map((game, gi) =>
-                gameCard(game, gi === 0 ? Math.round(cardGap * 0.5) : cardGap)
-              )}
-            </div>
-          );
-          firstBlock = false;
-          return block;
-        })}
-      </div>
-    );
-  }
-
-  const badge = (player: PlayerId) => (
-    <div
-      key={player}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        background: c.chip,
-        border: `1px solid ${c.cardBorder}`,
-        borderRadius: 999,
-        paddingLeft: Math.round(16 * s),
-        paddingRight: Math.round(18 * s),
-        paddingTop: Math.round(9 * s),
-        paddingBottom: Math.round(9 * s),
-        marginLeft: player === "rich" ? Math.round(12 * s) : 0,
-      }}
-    >
-      {leader === player && (
         <div
           style={{
-            width: Math.round(11 * s),
-            height: Math.round(11 * s),
-            borderRadius: 999,
-            background: c.accent,
-            marginRight: Math.round(9 * s),
+            position: "absolute",
+            top: 0, left: 0, right: 0, bottom: 0,
             display: "flex",
+            backgroundImage: GLOSS,
           }}
         />
-      )}
-      <span
-        style={{
-          fontFamily: DISPLAY,
-          fontWeight: 700,
-          fontSize: badgeName,
-          letterSpacing: 1,
-          color: c.textPrimary,
-        }}
-      >
-        {PLAYER_NAMES[player].toUpperCase()}
-      </span>
-      <span
-        style={{
-          fontFamily: SANS,
-          fontWeight: 500,
-          fontSize: badgeRec,
-          color: c.textSecondary,
-          marginLeft: Math.round(11 * s),
-        }}
-      >
-        {formatRecord(records[player])}
-      </span>
+        {rim(`p-${game.id}-${player}`)}
+        {side ? logoImg(side) : null}
+      </div>
+    );
+  };
+
+  const columnRail = (key: string, width: number, cards: React.ReactNode[]) => (
+    <div
+      key={key}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        width,
+        padding: railPad,
+        borderRadius: u(c.railRadius),
+        border: `${railEdge}px solid rgba(255,255,255,${c.railBorder})`,
+        background: `rgba(255,255,255,${c.railFill})`,
+      }}
+    >
+      {cards}
     </div>
   );
+
+  const stack = (build: (game: Game) => React.ReactNode) =>
+    games.map((game, i) => (
+      <div
+        key={game.id}
+        style={{ display: "flex", marginTop: i === 0 ? 0 : rowGap }}
+      >
+        {build(game)}
+      </div>
+    ));
+
+  const footerRow = (label: string, values: Record<PlayerId, string>) => (
+    <div
+      key={label}
+      style={{ display: "flex", width: contentW, height: footerRowH }}
+    >
+      <div style={{ width: matchupW, display: "flex", alignItems: "center" }}>
+        {outlined(`fl-${label}`, label, footerFont, c.textFill, u(c.outline), false)}
+      </div>
+      {PLAYER_IDS.map((player) => (
+        <div
+          key={player}
+          style={{
+            width: pickW,
+            marginLeft: gutter,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {outlined(
+            `fv-${label}-${player}`,
+            values[player],
+            footerFont,
+            c.textFill,
+            u(c.outline),
+            false
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
+  const byPlayer = (fn: (p: PlayerId) => string): Record<PlayerId, string> => ({
+    dad: fn("dad"),
+    rich: fn("rich"),
+  });
 
   return new ImageResponse(
     (
       <div
         style={{
+          position: "relative",
           width: "100%",
           height: "100%",
           display: "flex",
           flexDirection: "column",
-          background: c.bgBottom,
-          backgroundImage: `linear-gradient(180deg, ${c.bgTop} 0%, ${c.bgBottom} 100%)`,
+          background: c.bg,
           padding: pad,
-          fontFamily: SANS,
+          fontFamily: DISPLAY,
         }}
       >
-        {/* Header lower-third: title + season on the left, player badges on the right */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            height: headerH,
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <span
-              style={{
-                fontFamily: DISPLAY,
-                fontWeight: 700,
-                fontSize: titleFont,
-                letterSpacing: 1,
-                lineHeight: 1,
-                color: c.textPrimary,
-              }}
-            >
-              WEEK {week} PICKS
-            </span>
-            <span
-              style={{
-                fontFamily: SANS,
-                fontWeight: 500,
-                fontSize: seasonFont,
-                letterSpacing: 5,
-                color: c.textSecondary,
-                marginTop: Math.round(10 * s),
-              }}
-            >
-              {season} NFL SEASON
-            </span>
+        {backdrop && (
+          <img
+            src={backdrop}
+            width={W}
+            height={H}
+            alt=""
+            style={{ position: "absolute", top: 0, left: 0 }}
+          />
+        )}
+        {backdrop && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0, left: 0, width: W, height: H,
+              display: "flex",
+              background: `rgba(0,0,0,${c.backdropScrim})`,
+            }}
+          />
+        )}
+
+        {/* Chrome column headers */}
+        <div style={{ display: "flex", width: contentW, height: headerH }}>
+          <div style={{ width: matchupW, display: "flex" }}>
+            {outlined("h-week", `WEEK ${week}`, headerFont, c.textFill, u(c.outline), false)}
           </div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            {PLAYER_IDS.map((player) => badge(player))}
+          <div style={{ width: gutter, display: "flex" }} />
+          <div style={{ width: pickW, display: "flex" }}>
+            {outlined("h-dad", PLAYER_NAMES.dad.toUpperCase(), headerFont, c.textFill, u(c.outline), false)}
+          </div>
+          <div style={{ width: gutter, display: "flex" }} />
+          <div style={{ width: pickW, display: "flex" }}>
+            {outlined("h-rich", PLAYER_NAMES.rich.toUpperCase(), headerFont, c.textFill, u(c.outline), false)}
           </div>
         </div>
 
-        {/* Accent rule under the title */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            height: ruleH,
-            marginTop: ruleGap,
-          }}
-        >
-          <div
-            style={{
-              width: Math.round(96 * s),
-              height: ruleH,
-              background: c.accent,
-              borderRadius: Math.round(ruleH / 2),
-              display: "flex",
-            }}
-          />
-          <div
-            style={{
-              flex: "1 1 0",
-              height: 1,
-              background: "rgba(255,255,255,0.08)",
-              marginLeft: Math.round(14 * s),
-              display: "flex",
-            }}
-          />
+        {/* Three railed columns, locked row-for-row */}
+        <div style={{ display: "flex", width: contentW, marginTop: headerGap }}>
+          {columnRail("rail-m", matchupW, stack((game) => matchupCard(game)))}
+          <div style={{ width: gutter, display: "flex" }} />
+          {columnRail("rail-dad", pickW, stack((game) => pickCard(game, "dad")))}
+          <div style={{ width: gutter, display: "flex" }} />
+          {columnRail("rail-rich", pickW, stack((game) => pickCard(game, "rich")))}
         </div>
 
-        {/* Body */}
-        <div style={{ display: "flex", marginTop: bodyGap }}>{body}</div>
-
-        {/* Footer bar */}
+        {/* Footer stat block */}
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            height: footerH,
-            marginTop: footerGap,
+            flexDirection: "column",
+            width: contentW,
+            marginTop: u(c.footerGapAbove),
           }}
         >
-          <span
-            style={{
-              fontFamily: DISPLAY,
-              fontWeight: 700,
-              fontSize: Math.round(footerH * 0.5),
-              letterSpacing: 2,
-              color: c.textSecondary,
-            }}
-          >
-            BRUCE &amp; RICH PICK&apos;EM
-          </span>
-          <span
-            style={{
-              fontFamily: SANS,
-              fontWeight: 400,
-              fontSize: Math.round(footerH * 0.42),
-              letterSpacing: 2,
-              color: c.textMuted,
-            }}
-          >
-            WEEK {week} · {season} · GENERATED {genDate.toUpperCase()}
-          </span>
+          {footerRow("LAST WEEK", byPlayer((p) => formatWL(records.lastWeek?.[p] ?? null)))}
+          {footerRow("SEASON RECORD", byPlayer((p) => formatWL(records.season[p])))}
         </div>
       </div>
     ),
@@ -710,9 +872,6 @@ export async function GET(request: NextRequest) {
       width: W,
       height: H,
       fonts,
-      // Same reason as the division graphic: this re-renders whenever a pick
-      // changes, so it must not inherit ImageResponse's year-long immutable
-      // cache or the browser keeps serving the pre-edit image.
       headers: {
         "cache-control": "no-store, max-age=0, must-revalidate",
       },
