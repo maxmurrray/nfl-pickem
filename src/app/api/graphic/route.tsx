@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { ImageResponse } from "next/og";
 import { NextRequest, NextResponse } from "next/server";
 import { loadBackdrop } from "@/lib/backdrop";
@@ -128,6 +130,11 @@ function resolveSize(value: string | null): SizeKey | null {
    --------------------------------------------------------------------------- */
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
+// Logos ship with the repo (scripts/fetch-logos.mjs). Fetching 26 of them from
+// ESPN per render was fine locally and far too slow on a serverless function —
+// it pushed this endpoint past its timeout in production.
+const LOGO_DIR = path.join(process.cwd(), "public", "logos", "nfl");
+
 let sharpModule: any;
 async function getSharp(): Promise<any | null> {
   if (sharpModule !== undefined) return sharpModule;
@@ -137,6 +144,19 @@ async function getSharp(): Promise<any | null> {
     sharpModule = null;
   }
   return sharpModule;
+}
+
+/** Logo bytes: from disk, falling back to ESPN for a team we don't have. */
+async function logoBuffer(side: GameSide): Promise<Buffer | null> {
+  if (side.abbreviation) {
+    try {
+      return await readFile(path.join(LOGO_DIR, `${side.abbreviation}.png`));
+    } catch {
+      // not on disk — a relocation or a new abbreviation; fall through
+    }
+  }
+  const url = teamLogo(side);
+  return url ? fetchLogoBuffer(url) : null;
 }
 
 async function fetchLogoBuffer(url: string): Promise<Buffer | null> {
@@ -257,7 +277,7 @@ async function bakeLogo(
       create: { width: cw, height: ch, channels: 4, background: transparent },
     })
       .composite(layers)
-      .png({ compressionLevel: 9 })
+      .png({ compressionLevel: 3 })
       .toBuffer();
 
     return {
@@ -280,23 +300,22 @@ async function loadLogos(
   games: Game[],
   artPx: number
 ): Promise<Map<string, BakedLogo>> {
-  const urls = new Set<string>();
+  const sides = new Map<string, GameSide>();
   for (const game of games) {
     for (const side of [game.away, game.home]) {
-      const url = teamLogo(side);
-      if (url) urls.add(url);
+      if (side.abbreviation) sides.set(side.abbreviation, side);
     }
   }
   const out = new Map<string, BakedLogo>();
   await Promise.all(
-    [...urls].map(async (url) => {
-      const key = `${url}@${artPx}`;
+    [...sides].map(async ([abbr, side]) => {
+      const key = `${abbr}@${artPx}`;
       if (!bakeCache.has(key)) {
-        const source = await fetchLogoBuffer(url);
+        const source = await logoBuffer(side);
         bakeCache.set(key, source ? await bakeLogo(source, artPx) : null);
       }
       const baked = bakeCache.get(key);
-      if (baked) out.set(url, baked);
+      if (baked) out.set(abbr, baked);
     })
   );
   return out;
@@ -476,8 +495,7 @@ export async function GET(request: NextRequest) {
   /* ---------------- render helpers ---------------- */
 
   const logoImg = (side: GameSide) => {
-    const url = teamLogo(side);
-    const baked = url ? logos.get(url) : undefined;
+    const baked = logos.get(side.abbreviation);
     if (!baked) return null;
     return <img src={baked.uri} width={baked.w} height={baked.h} alt="" />;
   };

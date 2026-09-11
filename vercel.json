@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "src/app/api/graphic/route.tsx": {
+      "memory": 3009,
+      "maxDuration": 120
+    },
+    "src/app/api/polish/route.ts": {
+      "memory": 3009,
+      "maxDuration": 300
+    }
+  }
+}
