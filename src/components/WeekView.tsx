@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatRecord, gradeWeek } from "@/lib/grading";
 import {
   PLAYER_NAMES,
+  hasKickedOff,
   isGameLocked,
   otherPlayer,
   type WeekData,
@@ -184,11 +185,13 @@ export default function WeekView({ weekData }: WeekViewProps) {
           <div className="game-list">
             {win.games.map((game) => {
               const locked = isGameLocked(game, now);
+              const revealed = hasKickedOff(game, now);
               return (
                 <GameCard
                   key={game.id}
                   game={game}
                   locked={locked}
+                  revealed={revealed}
                   player={player && ready ? player : null}
                   myPick={player ? picks?.[game.id]?.[player] : undefined}
                   oppPick={

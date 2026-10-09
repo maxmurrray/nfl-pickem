@@ -50,6 +50,28 @@ export interface WeekData {
 /** Picks for a week keyed by gameId, then player. */
 export type WeekPicks = Record<string, Partial<Record<PlayerId, string>>>;
 
-export function isGameLocked(game: Game, now: number = Date.now()): boolean {
+/** Whether the game's kickoff has passed. Drives when the opponent's pick is
+ *  revealed — that stays tied to kickoff for every game, exempt or not. */
+export function hasKickedOff(game: Game, now: number = Date.now()): boolean {
   return new Date(game.kickoff).getTime() <= now;
+}
+
+/** Weekdays (US Eastern) whose games never lock. Thursday night is the one
+ *  game regularly picked late — the show records Friday, so both players
+ *  need to be able to enter (or change) it after it has already been played.
+ *  The pick still grades normally and still shows on the graphic. */
+export const LOCK_EXEMPT_DAYS: string[] = ["Thu"];
+
+export function isLockExempt(game: Game): boolean {
+  const day = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).format(new Date(game.kickoff));
+  return LOCK_EXEMPT_DAYS.includes(day);
+}
+
+/** Whether picks for the game are closed to edits. */
+export function isGameLocked(game: Game, now: number = Date.now()): boolean {
+  if (isLockExempt(game)) return false;
+  return hasKickedOff(game, now);
 }

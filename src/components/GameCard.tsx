@@ -12,7 +12,11 @@ import {
 
 interface GameCardProps {
   game: Game;
+  /** Picks can no longer be entered or changed. */
   locked: boolean;
+  /** Kickoff has passed, so the opponent's pick is visible. Thursday night
+   *  is revealed but not locked; every other game flips both together. */
+  revealed: boolean;
   player: PlayerId | null;
   myPick: string | undefined;
   oppPick: string | undefined;
@@ -154,6 +158,7 @@ function PickSlot({
 export default function GameCard({
   game,
   locked,
+  revealed,
   player,
   myPick,
   oppPick,
@@ -163,15 +168,17 @@ export default function GameCard({
   const hasPick = !!myPick;
 
   // Both players, stable dad → rich order. My own pick is always visible;
-  // the opponent's is revealed only once the game locks (unchanged rule).
+  // the opponent's is revealed only once the game has kicked off.
   const slots = PLAYER_IDS.map((pid) => {
     const isMe = player === pid;
     return {
       pid,
       teamId: isMe ? myPick : player ? oppPick : undefined,
-      revealed: isMe || locked,
+      revealed: isMe || revealed,
     };
   });
+  // A game that has started but is still editable (Thursday night).
+  const openLate = revealed && !locked;
 
   return (
     <article
@@ -194,7 +201,9 @@ export default function GameCard({
               ? "Final"
               : locked
                 ? "🔒 Locked"
-                : "Open"}
+                : openLate
+                  ? "Open · pick anytime"
+                  : "Open"}
         </span>
       </div>
 

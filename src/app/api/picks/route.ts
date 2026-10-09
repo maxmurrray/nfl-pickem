@@ -5,7 +5,12 @@ import {
   isPersistent,
   upsertPick,
 } from "@/lib/picks-store";
-import { isGameLocked, isPlayerId, type WeekPicks } from "@/lib/types";
+import {
+  hasKickedOff,
+  isGameLocked,
+  isPlayerId,
+  type WeekPicks,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +18,9 @@ export const dynamic = "force-dynamic";
  * GET /api/picks?season=2026&week=1&player=dad
  *
  * Returns picks for the week, keyed by gameId. The opponent's pick for a
- * game is only included once that game has kicked off (locked), so nobody
- * can peek and copy before lock.
+ * game is only included once that game has kicked off, so nobody can peek
+ * and copy beforehand. (Reveal is tied to kickoff, not to the edit lock —
+ * Thursday night stays editable after kickoff but is revealed like any other.)
  */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -35,8 +41,8 @@ export async function GET(request: NextRequest) {
   ]);
 
   const now = Date.now();
-  const lockedGameIds = new Set(
-    games.filter((g) => isGameLocked(g, now)).map((g) => g.id)
+  const revealedGameIds = new Set(
+    games.filter((g) => hasKickedOff(g, now)).map((g) => g.id)
   );
 
   const gameIds = new Set(games.map((g) => g.id));
@@ -47,8 +53,8 @@ export async function GET(request: NextRequest) {
   for (const row of rows) {
     if (!gameIds.has(row.gameId)) continue;
     counts[row.player]++;
-    // Hide the opponent's pick until the game locks.
-    if (row.player !== viewer && !lockedGameIds.has(row.gameId)) continue;
+    // Hide the opponent's pick until the game kicks off.
+    if (row.player !== viewer && !revealedGameIds.has(row.gameId)) continue;
     (picks[row.gameId] ??= {})[row.player] = row.teamId;
   }
 
@@ -65,7 +71,8 @@ export async function GET(request: NextRequest) {
  * Body: { player, season, week, gameId, teamId }
  *
  * Lock enforcement lives here: any game whose kickoff has passed rejects
- * writes with 409, regardless of what the UI shows.
+ * writes with 409, regardless of what the UI shows — except the lock-exempt
+ * days (Thursday night), which accept picks and changes at any time.
  */
 export async function POST(request: NextRequest) {
   let body: any;
